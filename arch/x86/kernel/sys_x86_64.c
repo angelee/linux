@@ -18,6 +18,20 @@
 #include <asm/ia32.h>
 #include <asm/syscalls.h>
 
+#include <asm/tlmm.h>
+
+static inline int in_tlmm(struct mm_struct *mm, unsigned long addr,
+			  unsigned long len)
+{
+	if (mm->tlmm) {
+		if (addr >= mm->tlmm && addr < mm->tlmm + TLMM_SIZE)
+			return 1;
+		if (addr < mm->tlmm && addr + len > mm->tlmm)
+			return 1;
+	}
+	return 0;
+}
+
 SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len,
 		unsigned long, prot, unsigned long, flags,
 		unsigned long, fd, unsigned long, off)
@@ -81,8 +95,11 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	unsigned long start_addr;
 	unsigned long begin, end;
 
-	if (flags & MAP_FIXED)
+	if (flags & MAP_FIXED) {
+		if (in_tlmm(mm, addr, len))
+			return -ENOMEM;
 		return addr;
+	}
 
 	find_start_end(flags, &begin, &end);
 
@@ -93,7 +110,8 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		addr = PAGE_ALIGN(addr);
 		vma = find_vma(mm, addr);
 		if (end - len >= addr &&
-		    (!vma || addr + len <= vma->vm_start))
+		    (!vma || addr + len <= vma->vm_start) &&
+		    !in_tlmm(mm, addr, len))
 			return addr;
 	}
 	if (((flags & MAP_32BIT) || test_thread_flag(TIF_IA32))
@@ -121,17 +139,22 @@ full_search:
 			}
 			return -ENOMEM;
 		}
-		if (!vma || addr + len <= vma->vm_start) {
+		if (!in_tlmm(mm, addr, len) &&
+		    (!vma || addr + len <= vma->vm_start))  {
 			/*
 			 * Remember the place where we stopped the search:
 			 */
 			mm->free_area_cache = addr + len;
 			return addr;
 		}
-		if (addr + mm->cached_hole_size < vma->vm_start)
+		if (addr + mm->cached_hole_size < vma->vm_start &&
+		    !in_tlmm(mm, addr, mm->cached_hole_size))
 			mm->cached_hole_size = vma->vm_start - addr;
 
-		addr = vma->vm_end;
+		if (in_tlmm(mm, addr, len))
+			addr = mm->tlmm + TLMM_SIZE;
+		else
+			addr = vma->vm_end;
 	}
 }
 
@@ -149,8 +172,11 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	if (len > TASK_SIZE)
 		return -ENOMEM;
 
-	if (flags & MAP_FIXED)
+	if (flags & MAP_FIXED) {
+		if (in_tlmm(mm, addr, len))
+			return -ENOMEM;
 		return addr;
+	}
 
 	/* for MAP_32BIT mappings we force the legact mmap base */
 	if (!test_thread_flag(TIF_IA32) && (flags & MAP_32BIT))
@@ -161,7 +187,8 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		addr = PAGE_ALIGN(addr);
 		vma = find_vma(mm, addr);
 		if (TASK_SIZE - len >= addr &&
-				(!vma || addr + len <= vma->vm_start))
+		    (!vma || addr + len <= vma->vm_start) &&
+		    !in_tlmm(mm, addr, len))
 			return addr;
 	}
 
@@ -177,7 +204,8 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	/* make sure it can fit in the remaining address space */
 	if (addr > len) {
 		vma = find_vma(mm, addr-len);
-		if (!vma || addr <= vma->vm_start)
+		if (!in_tlmm(mm, addr, len) &&
+		    (!vma || addr <= vma->vm_start))
 			/* remember the address as a hint for next time */
 			return mm->free_area_cache = addr-len;
 	}
@@ -194,16 +222,21 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		 * return with success:
 		 */
 		vma = find_vma(mm, addr);
-		if (!vma || addr+len <= vma->vm_start)
+		if (!in_tlmm(mm, addr, len) &&
+		    (!vma || addr+len <= vma->vm_start))
 			/* remember the address as a hint for next time */
 			return mm->free_area_cache = addr;
 
 		/* remember the largest hole we saw so far */
-		if (addr + mm->cached_hole_size < vma->vm_start)
+		if (addr + mm->cached_hole_size < vma->vm_start &&
+		    !in_tlmm(mm, addr, len))
 			mm->cached_hole_size = vma->vm_start - addr;
 
 		/* try just below the current vma->vm_start */
-		addr = vma->vm_start-len;
+		if (in_tlmm(mm, addr, len))
+			addr = mm->tlmm - len;
+		else
+			addr = vma->vm_start-len;
 	} while (len < vma->vm_start);
 
 bottomup:

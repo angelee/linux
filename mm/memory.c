@@ -64,6 +64,8 @@
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
+#include <asm/tlmm.h>
+
 #include "internal.h"
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES
@@ -3005,6 +3007,10 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	pud = pud_alloc(mm, pgd, address);
 	if (!pud)
 		return VM_FAULT_OOM;
+
+	if (current->tlmm_pgmap)
+		tlmm_sync_pud(current, address, pud);
+
 	pmd = pmd_alloc(mm, pud, address);
 	if (!pmd)
 		return VM_FAULT_OOM;

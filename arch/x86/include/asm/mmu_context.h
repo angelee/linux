@@ -45,7 +45,10 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		cpumask_set_cpu(cpu, mm_cpumask(next));
 
 		/* Re-load page tables */
-		load_cr3(next->pgd);
+		if (next && next->tlmm && tsk->tlmm_pgmap)
+			load_cr3((pgd_t *)tsk->tlmm_pgmap);
+		else
+			load_cr3(next->pgd);
 
 		/*
 		 * load the LDT, if the LDT is different:
@@ -66,6 +69,9 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 			load_cr3(next->pgd);
 			load_LDT_nolock(&next->context);
 		}
+
+		if (next && next->tlmm && tsk->tlmm_pgmap)
+			load_cr3((pgd_t *)tsk->tlmm_pgmap);
 	}
 #endif
 }

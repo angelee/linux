@@ -35,6 +35,8 @@
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
 
+#include <asm/tlmm.h>
+
 #include "internal.h"
 
 #ifndef arch_mmap_check
@@ -2135,6 +2137,8 @@ void exit_mmap(struct mm_struct *mm)
 	 */
 	while (vma)
 		vma = remove_vma(vma);
+
+	exit_tlmm_mmap(mm);
 
 	BUG_ON(mm->nr_ptes > (FIRST_USER_ADDRESS+PMD_SIZE-1)>>PMD_SHIFT);
 }

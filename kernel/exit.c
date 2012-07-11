@@ -56,6 +56,8 @@
 #include <asm/mmu_context.h>
 #include "cred-internals.h"
 
+#include <asm/tlmm.h>
+
 static void exit_mm(struct task_struct * tsk);
 
 static void __unhash_process(struct task_struct *p)
@@ -957,6 +959,7 @@ NORET_TYPE void do_exit(long code)
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
 
+	exit_tlmm_task(tsk);
 	exit_mm(tsk);
 
 	if (group_dead)

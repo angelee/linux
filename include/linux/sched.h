@@ -94,6 +94,8 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+struct tlmm_pgmap;
+
 struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
@@ -1539,6 +1541,8 @@ struct task_struct {
 	unsigned long trace_recursion;
 #endif /* CONFIG_TRACING */
 	unsigned long stack_start;
+
+	struct tlmm_pgmap   *tlmm_pgmap;
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */
