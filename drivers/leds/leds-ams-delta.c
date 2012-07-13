@@ -8,11 +8,12 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/leds.h>
-#include <mach/board-ams-delta.h>
+#include <plat/board-ams-delta.h>
 
 /*
  * Our context

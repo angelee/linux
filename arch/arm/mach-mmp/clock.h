@@ -6,12 +6,13 @@
  *  published by the Free Software Foundation.
  */
 
-#include <asm/clkdev.h>
+#include <linux/clkdev.h>
 
 struct clkops {
 	void			(*enable)(struct clk *);
 	void			(*disable)(struct clk *);
 	unsigned long		(*getrate)(struct clk *);
+	int			(*setrate)(struct clk *, unsigned long);
 };
 
 struct clk {
@@ -25,6 +26,7 @@ struct clk {
 };
 
 extern struct clkops apbc_clk_ops;
+extern struct clkops apmu_clk_ops;
 
 #define APBC_CLK(_name, _reg, _fnclksel, _rate)			\
 struct clk clk_##_name = {					\
@@ -67,5 +69,3 @@ struct clk clk_##_name = {					\
 
 extern struct clk clk_pxa168_gpio;
 extern struct clk clk_pxa168_timers;
-
-extern void clks_register(struct clk_lookup *, size_t);
