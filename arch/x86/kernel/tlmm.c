@@ -44,6 +44,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
+#include <linux/slab.h>
 
 #include <asm/tlmm.h>
 #include <asm/tlb.h>
