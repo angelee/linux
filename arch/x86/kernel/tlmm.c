@@ -40,7 +40,6 @@
 #include <linux/init.h>
 #include <linux/sysctl.h>
 #include <linux/spinlock.h>
-#include <linux/syscalls.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
@@ -295,11 +294,6 @@ long tlmm_reserve(void)
 	return error;
 }
 
-SYSCALL_DEFINE0(reserve)
-{
-	return tlmm_reserve();
-}
-
 static inline int tlmm_alloc_pd(struct mm_struct *mm)
 {
 	void *page;
@@ -343,11 +337,6 @@ long tlmm_palloc(void)
 	up_write(&current->mm->mmap_sem);
 
 	return pd;
-}
-
-SYSCALL_DEFINE0(palloc)
-{
-	return tlmm_palloc();
 }
 
 static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
@@ -442,12 +431,6 @@ done:
 		kfree(kmalloc_pd);
 
 	return ret;
-}
-
-SYSCALL_DEFINE4(pmap, unsigned long, addr, int __user *, upd, int, npd,
-		unsigned long, prot)
-{
-	return tlmm_pmap(addr, upd, npd, prot);
 }
 
 void tlmm_sync_pud(struct task_struct *tsk, unsigned long address, pud_t *pud)

@@ -22,6 +22,7 @@ static long tlmm_dev_ioctl(struct file *fp, unsigned int cmd,
 	case TLMM_PMAP:
 	{
 		struct tlmm_pmap p;
+
 		if (copy_from_user(&p, (void *)arg, sizeof(p)))
 			return -EFAULT;
 		return tlmm_pmap(p.addr, p.upd, p.npd, p.prot);

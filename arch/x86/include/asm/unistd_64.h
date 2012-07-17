@@ -683,12 +683,6 @@ __SYSCALL(__NR_sendmmsg, sys_sendmmsg)
 __SYSCALL(__NR_setns, sys_setns)
 #define __NR_getcpu				309
 __SYSCALL(__NR_getcpu, sys_getcpu)
-#define __NR_reserve				310
-__SYSCALL(__NR_reserve, sys_reserve)
-#define __NR_pmap				311
-__SYSCALL(__NR_pmap, sys_pmap)
-#define __NR_palloc				312
-__SYSCALL(__NR_palloc, sys_palloc)
 
 #ifndef __NO_STUBS
 #define __ARCH_WANT_OLD_READDIR
