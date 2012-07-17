@@ -10,14 +10,22 @@ LDFLAGS = -lpthread
 
 HDRS	= systlmm.h
 BINS	= prot micro pmap
+LIBS    = systlmm.o
 
 all: $(BINS)
 
 %: %.c
 
-%: %.c
+%: %.c $(HDRS) $(LIBS)
 	@echo "CC       $@"
-	$(Q)$(CC) -o $@ $< $(CFLAGS) $(LDFLAGS)
+	$(Q)$(CC) -o $@ $< $(LIBS) $(CFLAGS) $(LDFLAGS)
+
+%.o: %.c $(HDRS)
+	@echo "CC       $@"
+	$(Q)$(CC) -c -o $@ $< $(CFLAGS)
+
+.PRECIOUS: $(LIBS)
+.PHONY: clean ignore
 
 clean:
 	@echo "CLEAN"

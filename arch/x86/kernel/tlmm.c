@@ -261,17 +261,10 @@ static void tlmm_page_map_free(struct tlmm_pgmap *pgmap, int level,
 	tlmm_page_free(pgmap);
 }
 
-static long get_unmapped_reserve(struct mm_struct *mm, unsigned long addr)
+static long get_unmapped_reserve(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
-
-	if (addr) {
-		addr = TLMM_ALIGN(addr);
-		vma = find_vma(mm, addr);
-		if (TASK_SIZE - TLMM_SIZE >= addr &&
-		    (!vma || addr + TLMM_SIZE <= vma->vm_start))
-			return addr;
-	}
+	unsigned long addr;
 
 	addr = TLMM_ALIGN(TASK_SIZE - TLMM_SIZE);
 	do {
@@ -284,20 +277,27 @@ static long get_unmapped_reserve(struct mm_struct *mm, unsigned long addr)
 	return -ENOMEM;
 }
 
-SYSCALL_DEFINE1(reserve, unsigned long, addr)
+long tlmm_reserve(void)
 {
 	struct mm_struct *mm = current->mm;
 	long error = -ENOMEM;
 
 	down_write(&mm->mmap_sem);
 	if (!mm->tlmm) {
-		error = get_unmapped_reserve(mm, addr);
+		error = get_unmapped_reserve(mm);
 		if (error > 0)
 			mm->tlmm = error;
 	}
 	up_write(&mm->mmap_sem);
 
+	printk(KERN_INFO "tlmm_reserve %lx\n", error);
+
 	return error;
+}
+
+SYSCALL_DEFINE0(reserve)
+{
+	return tlmm_reserve();
 }
 
 static inline int tlmm_alloc_pd(struct mm_struct *mm)
@@ -334,7 +334,7 @@ static void tlmm_free_pd(struct mm_struct *mm, unsigned int pd)
 	mm->tlmm_table->page[pd] = NULL;
 }
 
-SYSCALL_DEFINE0(palloc)
+long tlmm_palloc(void)
 {
 	long pd;
 
@@ -343,6 +343,11 @@ SYSCALL_DEFINE0(palloc)
 	up_write(&current->mm->mmap_sem);
 
 	return pd;
+}
+
+SYSCALL_DEFINE0(palloc)
+{
+	return tlmm_palloc();
 }
 
 static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
@@ -398,8 +403,8 @@ static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
 	return 0;
 }
 
-SYSCALL_DEFINE4(pmap, unsigned long, addr, int __user *, upd, int, npd,
-		unsigned long, prot)
+long tlmm_pmap(unsigned long addr, int __user *upd, int npd,
+	       unsigned long prot)
 {
 	long ret = -ENOMEM;
 	int stack_pd[MAXSTACKPDS];
@@ -437,6 +442,12 @@ done:
 		kfree(kmalloc_pd);
 
 	return ret;
+}
+
+SYSCALL_DEFINE4(pmap, unsigned long, addr, int __user *, upd, int, npd,
+		unsigned long, prot)
+{
+	return tlmm_pmap(addr, upd, npd, prot);
 }
 
 void tlmm_sync_pud(struct task_struct *tsk, unsigned long address, pud_t *pud)

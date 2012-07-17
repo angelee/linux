@@ -107,7 +107,7 @@ static void test_init(void)
 int
 main(int ac, char **av)
 {
-	tlmm_bot = sys_reserve(0);
+	tlmm_bot = sys_reserve();
 	tlmm_top = tlmm_bot + TLMM_SIZE;
 	map_top = tlmm_top - 4096;
 
