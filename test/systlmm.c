@@ -43,7 +43,7 @@ long sys_reserve(void)
 	return addr;
 }
 
-long sys_pmap(void *addr, int *pds, unsigned int npds, int prot)
+long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap)
 {
 	struct tlmm_pmap p;
 
@@ -54,6 +54,7 @@ long sys_pmap(void *addr, int *pds, unsigned int npds, int prot)
 	p.upd = pds;
 	p.npd = npds;
 	p.prot = prot;
+	p.decmap = decmap;
 	return ioctl(devfd, TLMM_PMAP, &p);
 }
 

@@ -8,6 +8,7 @@ struct tlmm_pmap {
 	int *upd;
 	int npd;
 	unsigned long prot;
+	int decmap;
 };
 
 #define _TLMM_IOCTL		0xE0
@@ -26,7 +27,7 @@ void tlmm_sync_pud(struct task_struct *tsk, unsigned long address, pud_t *pud);
 long tlmm_reserve(void);
 long tlmm_palloc(void);
 long tlmm_pmap(unsigned long addr, int __user *upd, int npd,
-	       unsigned long prot);
+	       unsigned long prot, int decmap);
 
 #endif /* __KERNEL__ */
 

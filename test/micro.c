@@ -59,7 +59,7 @@ bench0(void)
 	tmap = tumap = 0;
 	for (i = 0; i < iters; i++) {
 		s = read_tsc();
-		if (sys_pmap((void *)addr, &pd, 1, PROT_READ|PROT_WRITE) < 0)
+		if (sys_pmap((void *)addr, &pd, 1, PROT_READ|PROT_WRITE, 1) < 0)
 			die("bench0: sys_pmap error: %s\n", strerror(errno));
 
 		if (INCLUDE_TLB)
@@ -69,7 +69,7 @@ bench0(void)
 		tmap += (e - s);
 
 		s = read_tsc();
-		if (sys_pmap((void *)addr, &pdnull, 1, 0) < 0)
+		if (sys_pmap((void *)addr, &pdnull, 1, 0, 1) < 0)
 			die("bench0: sys_pmap (null) error: %s",
 			    strerror(errno));
 		e = read_tsc();
@@ -96,14 +96,15 @@ static void bench1_helper(int *pd, int *null, unsigned int n)
 	tmap = tumap = 0;
 	for (i = 0; i < iters; i++) {
 		s = read_tsc();
-		if (sys_pmap((void *)addr, pd, n, PROT_READ|PROT_WRITE) < 0)
+		if (sys_pmap((void *)addr, pd, n, PROT_READ|PROT_WRITE, 1) < 0)
 			die("bench1: sys_pmap error: %s", strerror(errno));
 
 		e = read_tsc();
 		tmap += (e - s);
 
 		s = read_tsc();
-		if (sys_pmap((void *)addr, null, n, PROT_READ|PROT_WRITE) < 0)
+		if (sys_pmap((void *)addr, null, n, PROT_READ|PROT_WRITE, 1)
+		    < 0)
 			die("bench1: sys_pmap (null) error: %s",
 			    strerror(errno));
 		e = read_tsc();

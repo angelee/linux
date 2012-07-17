@@ -25,7 +25,7 @@ static long tlmm_dev_ioctl(struct file *fp, unsigned int cmd,
 
 		if (copy_from_user(&p, (void *)arg, sizeof(p)))
 			return -EFAULT;
-		return tlmm_pmap(p.addr, p.upd, p.npd, p.prot);
+		return tlmm_pmap(p.addr, p.upd, p.npd, p.prot, p.decmap);
 	}
 	case TLMM_PALLOC:
 		return tlmm_palloc();

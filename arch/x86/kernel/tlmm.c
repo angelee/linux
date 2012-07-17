@@ -96,23 +96,19 @@ struct tlmm_table {
 	void *page[TLMM_TABLE_SIZE];
 };
 
-#if CILK_COMPAT
-static inline int tlmm_next_pos(int pos)
+static int tlmm_next_dec(int pos)
 {
 	return pos - 1;
 }
 
-#else /* !CILK_COMPAT */
-
-static inline int tlmm_next_pos(int *pos)
+static int tlmm_next_inc(int pos)
 {
-    return pos + 1;
+	return pos + 1;
 }
-#endif
 
 static inline void tlmm_page_free(void *va)
 {
-    free_page((unsigned long)va);
+	free_page((unsigned long)va);
 }
 
 static inline void *tlmm_page_alloc(void)
@@ -164,7 +160,7 @@ static inline int tlmm_handle_pd_map(int pd, ptent_t *pm_entp, u64 ptflags)
 static int page_map_traverse(struct tlmm_pgmap *pgmap, int pmlevel,
 			     int *pd, int n, int *pos,
 			     const void *first, const void *last,
-			     u64 ptflags)
+			     u64 ptflags, int (*next_pos)(int))
 {
 	struct tlmm_pgmap *pgmap_next;
 	const void *first_next;
@@ -192,7 +188,7 @@ static int page_map_traverse(struct tlmm_pgmap *pgmap, int pmlevel,
 			r = tlmm_handle_pd_map(pd[*pos], pm_entp, ptflags);
 			if (r < 0)
 				return r;
-			*pos = tlmm_next_pos(*pos);
+			*pos = next_pos(*pos);
 			continue;
 		}
 
@@ -222,7 +218,8 @@ static int page_map_traverse(struct tlmm_pgmap *pgmap, int pmlevel,
 		last_next  = (idx == last_idx)  ?
 			last  : (const void *) (uintptr_t) ~0UL;
 		r = page_map_traverse(pgmap_next, pmlevel - 1, pd, n, pos,
-				      first_next, last_next, ptflags);
+				      first_next, last_next, ptflags,
+				      next_pos);
 		if (r < 0)
 			return r;
 	}
@@ -337,7 +334,8 @@ long tlmm_palloc(void)
 	return pd;
 }
 
-static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
+static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags,
+		   int decmap)
 {
 	const void *last;
 	const void *start;
@@ -345,15 +343,15 @@ static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
 	int pos;
 	int r;
 
-#if CILK_COMPAT
-	pos = n - 1;
-	last = addr;
-	start = addr - ((n - 1) * PAGE_SIZE);
-#else
-	pos = 0;
-	start = addr;
-	last = addr + ((n - 1) * PAGE_SIZE);
-#endif
+	if (decmap) {
+		pos = n - 1;
+		last = addr;
+		start = addr - ((n - 1) * PAGE_SIZE);
+	} else {
+		pos = 0;
+		start = addr;
+		last = addr + ((n - 1) * PAGE_SIZE);
+	}
 
 	if (!tlmm_addr(addr) || !tlmm_addr(last))
 		return -EINVAL;
@@ -376,7 +374,8 @@ static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
 		ptflags &= ~PTE_NX;
 
 	r = page_map_traverse(current->tlmm_pgmap, NPTLVLS, pd, n,
-			      &pos, (void *)start, (void *)last, ptflags);
+			      &pos, (void *)start, (void *)last, ptflags,
+			      decmap ? tlmm_next_dec : tlmm_next_inc);
 	if (r < 0)
 		return r;
 
@@ -391,7 +390,7 @@ static int do_pmap(int *pd, int n, const void *addr, unsigned int vm_flags)
 }
 
 long tlmm_pmap(unsigned long addr, int __user *upd, int npd,
-	       unsigned long prot)
+	       unsigned long prot, int decmap)
 {
 	long ret = -ENOMEM;
 	int stack_pd[MAXSTACKPDS];
@@ -417,12 +416,9 @@ long tlmm_pmap(unsigned long addr, int __user *upd, int npd,
 		goto done;
 	}
 
-	/* Older versions of Cilk-M don't pass prot bits. */
-	prot = !prot && CILK_COMPAT ? (VM_WRITE | VM_READ) : prot;
-
 	vm_flags = calc_vm_prot_bits(prot) & (VM_WRITE | VM_READ);
 
-	ret = do_pmap(pd, npd, (void *) addr, vm_flags);
+	ret = do_pmap(pd, npd, (void *) addr, vm_flags, decmap);
 
 done:
 	if (kmalloc_pd)

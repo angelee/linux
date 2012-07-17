@@ -47,7 +47,7 @@ static void do_test(void *x)
 		r = rand() % NUM_SEGS;
 
 		if (sys_pmap((void *)map_top, &test_seg[r][0], NUM_PAGES,
-			     PROT_READ|PROT_WRITE) < 0)
+			     PROT_READ|PROT_WRITE, 1) < 0)
 			die("do_test: sys_pmap error: %s", strerror(errno));
 
 		for (k = 0; k < NUM_PAGES; k++) {
@@ -79,7 +79,8 @@ static void test_init(void)
 		assert(pd[i] == (int)i);
 	}
 
-	if (sys_pmap((void *)map_top, pd, NUM_PAGES, PROT_READ|PROT_WRITE) < 0)
+	if (sys_pmap((void *)map_top, pd, NUM_PAGES, PROT_READ|PROT_WRITE, 1)
+	    < 0)
 		die("test_init: sys_pmap error: %s", strerror(errno));
 
 
