@@ -289,8 +289,6 @@ long tlmm_reserve(void)
 	}
 	up_write(&mm->mmap_sem);
 
-	printk(KERN_INFO "tlmm_reserve %lx\n", error);
-
 	return error;
 }
 
