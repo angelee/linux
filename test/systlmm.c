@@ -58,7 +58,7 @@ long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap)
 	return ioctl(devfd, TLMM_PMAP, &p);
 }
 
-int sys_palloc(void)
+long sys_palloc(void)
 {
 	if (!inited)
 		init();
