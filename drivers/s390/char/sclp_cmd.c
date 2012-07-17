@@ -21,6 +21,7 @@
 #include <asm/chpid.h>
 #include <asm/sclp.h>
 #include <asm/setup.h>
+#include <asm/ctl_reg.h>
 
 #include "sclp.h"
 
@@ -61,8 +62,8 @@ static int __init sclp_cmd_sync_early(sclp_cmdw_t cmd, void *sccb)
 	rc = sclp_service_call(cmd, sccb);
 	if (rc)
 		goto out;
-	__load_psw_mask(PSW_BASE_BITS | PSW_MASK_EXT |
-			PSW_MASK_WAIT | PSW_DEFAULT_KEY);
+	__load_psw_mask(PSW_DEFAULT_KEY | PSW_MASK_BASE | PSW_MASK_EA |
+			PSW_MASK_BA | PSW_MASK_EXT | PSW_MASK_WAIT);
 	local_irq_disable();
 out:
 	/* Contents of the sccb might have changed. */
@@ -441,9 +442,8 @@ static int sclp_mem_notifier(struct notifier_block *nb,
 	start = arg->start_pfn << PAGE_SHIFT;
 	size = arg->nr_pages << PAGE_SHIFT;
 	mutex_lock(&sclp_mem_mutex);
-	for (id = 0; id <= sclp_max_storage_id; id++)
-		if (!test_bit(id, sclp_storage_ids))
-			sclp_attach_storage(id);
+	for_each_clear_bit(id, sclp_storage_ids, sclp_max_storage_id + 1)
+		sclp_attach_storage(id);
 	switch (action) {
 	case MEM_ONLINE:
 	case MEM_GOING_OFFLINE:

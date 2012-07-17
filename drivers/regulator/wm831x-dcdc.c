@@ -380,13 +380,15 @@ static int wm831x_buckv_set_current_limit(struct regulator_dev *rdev,
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(wm831x_dcdc_ilim); i++) {
-		if (max_uA <= wm831x_dcdc_ilim[i])
+		if ((min_uA <= wm831x_dcdc_ilim[i]) &&
+		    (wm831x_dcdc_ilim[i] <= max_uA))
 			break;
 	}
 	if (i == ARRAY_SIZE(wm831x_dcdc_ilim))
 		return -EINVAL;
 
-	return wm831x_set_bits(wm831x, reg, WM831X_DC1_HC_THR_MASK, i);
+	return wm831x_set_bits(wm831x, reg, WM831X_DC1_HC_THR_MASK,
+			       i << WM831X_DC1_HC_THR_SHIFT);
 }
 
 static int wm831x_buckv_get_current_limit(struct regulator_dev *rdev)
@@ -400,7 +402,8 @@ static int wm831x_buckv_get_current_limit(struct regulator_dev *rdev)
 	if (val < 0)
 		return val;
 
-	return wm831x_dcdc_ilim[val & WM831X_DC1_HC_THR_MASK];
+	val = (val & WM831X_DC1_HC_THR_MASK) >> WM831X_DC1_HC_THR_SHIFT;
+	return wm831x_dcdc_ilim[val];
 }
 
 static struct regulator_ops wm831x_buckv_ops = {
@@ -511,7 +514,8 @@ static __devinit int wm831x_buckv_probe(struct platform_device *pdev)
 	if (pdata == NULL || pdata->dcdc[id] == NULL)
 		return -ENODEV;
 
-	dcdc = kzalloc(sizeof(struct wm831x_dcdc), GFP_KERNEL);
+	dcdc = devm_kzalloc(&pdev->dev,  sizeof(struct wm831x_dcdc),
+			    GFP_KERNEL);
 	if (dcdc == NULL) {
 		dev_err(&pdev->dev, "Unable to allocate private data\n");
 		return -ENOMEM;
@@ -553,7 +557,7 @@ static __devinit int wm831x_buckv_probe(struct platform_device *pdev)
 		wm831x_buckv_dvs_init(dcdc, pdata->dcdc[id]->driver_data);
 
 	dcdc->regulator = regulator_register(&dcdc->desc, &pdev->dev,
-					     pdata->dcdc[id], dcdc);
+					     pdata->dcdc[id], dcdc, NULL);
 	if (IS_ERR(dcdc->regulator)) {
 		ret = PTR_ERR(dcdc->regulator);
 		dev_err(wm831x->dev, "Failed to register DCDC%d: %d\n",
@@ -590,7 +594,6 @@ err_regulator:
 err:
 	if (dcdc->dvs_gpio)
 		gpio_free(dcdc->dvs_gpio);
-	kfree(dcdc);
 	return ret;
 }
 
@@ -605,7 +608,6 @@ static __devexit int wm831x_buckv_remove(struct platform_device *pdev)
 	regulator_unregister(dcdc->regulator);
 	if (dcdc->dvs_gpio)
 		gpio_free(dcdc->dvs_gpio);
-	kfree(dcdc);
 
 	return 0;
 }
@@ -722,7 +724,8 @@ static __devinit int wm831x_buckp_probe(struct platform_device *pdev)
 	if (pdata == NULL || pdata->dcdc[id] == NULL)
 		return -ENODEV;
 
-	dcdc = kzalloc(sizeof(struct wm831x_dcdc), GFP_KERNEL);
+	dcdc = devm_kzalloc(&pdev->dev, sizeof(struct wm831x_dcdc),
+			    GFP_KERNEL);
 	if (dcdc == NULL) {
 		dev_err(&pdev->dev, "Unable to allocate private data\n");
 		return -ENOMEM;
@@ -747,7 +750,7 @@ static __devinit int wm831x_buckp_probe(struct platform_device *pdev)
 	dcdc->desc.owner = THIS_MODULE;
 
 	dcdc->regulator = regulator_register(&dcdc->desc, &pdev->dev,
-					     pdata->dcdc[id], dcdc);
+					     pdata->dcdc[id], dcdc, NULL);
 	if (IS_ERR(dcdc->regulator)) {
 		ret = PTR_ERR(dcdc->regulator);
 		dev_err(wm831x->dev, "Failed to register DCDC%d: %d\n",
@@ -771,7 +774,6 @@ static __devinit int wm831x_buckp_probe(struct platform_device *pdev)
 err_regulator:
 	regulator_unregister(dcdc->regulator);
 err:
-	kfree(dcdc);
 	return ret;
 }
 
@@ -783,7 +785,6 @@ static __devexit int wm831x_buckp_remove(struct platform_device *pdev)
 
 	free_irq(platform_get_irq_byname(pdev, "UV"), dcdc);
 	regulator_unregister(dcdc->regulator);
-	kfree(dcdc);
 
 	return 0;
 }
@@ -874,7 +875,7 @@ static __devinit int wm831x_boostp_probe(struct platform_device *pdev)
 	dcdc->desc.owner = THIS_MODULE;
 
 	dcdc->regulator = regulator_register(&dcdc->desc, &pdev->dev,
-					     pdata->dcdc[id], dcdc);
+					     pdata->dcdc[id], dcdc, NULL);
 	if (IS_ERR(dcdc->regulator)) {
 		ret = PTR_ERR(dcdc->regulator);
 		dev_err(wm831x->dev, "Failed to register DCDC%d: %d\n",
@@ -973,7 +974,7 @@ static __devinit int wm831x_epe_probe(struct platform_device *pdev)
 	dcdc->desc.owner = THIS_MODULE;
 
 	dcdc->regulator = regulator_register(&dcdc->desc, &pdev->dev,
-					     pdata->epe[id], dcdc);
+					     pdata->epe[id], dcdc, NULL);
 	if (IS_ERR(dcdc->regulator)) {
 		ret = PTR_ERR(dcdc->regulator);
 		dev_err(wm831x->dev, "Failed to register EPE%d: %d\n",

@@ -4,7 +4,7 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
 
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/errno.h>
 #include <linux/file.h>
@@ -294,19 +294,20 @@ SYSCALL_DEFINE4(readlinkat, int, dfd, const char __user *, pathname,
 {
 	struct path path;
 	int error;
+	int empty = 0;
 
 	if (bufsiz <= 0)
 		return -EINVAL;
 
-	error = user_path_at(dfd, pathname, LOOKUP_EMPTY, &path);
+	error = user_path_at_empty(dfd, pathname, LOOKUP_EMPTY, &path, &empty);
 	if (!error) {
 		struct inode *inode = path.dentry->d_inode;
 
-		error = -EINVAL;
+		error = empty ? -ENOENT : -EINVAL;
 		if (inode->i_op->readlink) {
 			error = security_inode_readlink(path.dentry);
 			if (!error) {
-				touch_atime(path.mnt, path.dentry);
+				touch_atime(&path);
 				error = inode->i_op->readlink(path.dentry,
 							      buf, bufsiz);
 			}

@@ -1,8 +1,5 @@
-#define _GNU_SOURCE
-#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
-#include <libgen.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +10,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include "build-id.h"
+#include "util.h"
 #include "debug.h"
 #include "symbol.h"
 #include "strlist.h"
@@ -24,7 +22,7 @@
 #include <sys/utsname.h>
 
 #ifndef KSYM_NAME_LEN
-#define KSYM_NAME_LEN 128
+#define KSYM_NAME_LEN 256
 #endif
 
 #ifndef NT_GNU_BUILD_ID
@@ -46,11 +44,14 @@ struct symbol_conf symbol_conf = {
 	.exclude_other	  = true,
 	.use_modules	  = true,
 	.try_vmlinux_path = true,
+	.annotate_src	  = true,
 	.symfs            = "",
 };
 
 int dso__name_len(const struct dso *dso)
 {
+	if (!dso)
+		return strlen("[unknown]");
 	if (verbose)
 		return dso->long_name_len;
 
@@ -261,6 +262,28 @@ static size_t symbol__fprintf(struct symbol *sym, FILE *fp)
 		       sym->binding == STB_GLOBAL ? 'g' :
 		       sym->binding == STB_LOCAL  ? 'l' : 'w',
 		       sym->name);
+}
+
+size_t symbol__fprintf_symname_offs(const struct symbol *sym,
+				    const struct addr_location *al, FILE *fp)
+{
+	unsigned long offset;
+	size_t length;
+
+	if (sym && sym->name) {
+		length = fprintf(fp, "%s", sym->name);
+		if (al) {
+			offset = al->addr - sym->start;
+			length += fprintf(fp, "+0x%lx", offset);
+		}
+		return length;
+	} else
+		return fprintf(fp, "[unknown]");
+}
+
+size_t symbol__fprintf_symname(const struct symbol *sym, FILE *fp)
+{
+	return symbol__fprintf_symname_offs(sym, NULL, fp);
 }
 
 void dso__set_long_name(struct dso *dso, char *name)
@@ -954,8 +977,9 @@ static Elf_Scn *elf_section_by_name(Elf *elf, GElf_Ehdr *ep,
  * And always look at the original dso, not at debuginfo packages, that
  * have the PLT data stripped out (shdr_rel_plt.sh_type == SHT_NOBITS).
  */
-static int dso__synthesize_plt_symbols(struct  dso *dso, struct map *map,
-				       symbol_filter_t filter)
+static int
+dso__synthesize_plt_symbols(struct dso *dso, char *name, struct map *map,
+			    symbol_filter_t filter)
 {
 	uint32_t nr_rel_entries, idx;
 	GElf_Sym sym;
@@ -970,10 +994,7 @@ static int dso__synthesize_plt_symbols(struct  dso *dso, struct map *map,
 	char sympltname[1024];
 	Elf *elf;
 	int nr = 0, symidx, fd, err = 0;
-	char name[PATH_MAX];
 
-	snprintf(name, sizeof(name), "%s%s",
-		 symbol_conf.symfs, dso->long_name);
 	fd = open(name, O_RDONLY);
 	if (fd < 0)
 		goto out;
@@ -1680,8 +1701,9 @@ restart:
 			continue;
 
 		if (ret > 0) {
-			int nr_plt = dso__synthesize_plt_symbols(dso, map,
-								 filter);
+			int nr_plt;
+
+			nr_plt = dso__synthesize_plt_symbols(dso, name, map, filter);
 			if (nr_plt > 0)
 				ret += nr_plt;
 			break;
@@ -1756,7 +1778,7 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 		struct stat st;
 
 		/*sshfs might return bad dent->d_type, so we have to stat*/
-		sprintf(path, "%s/%s", dir_name, dent->d_name);
+		snprintf(path, sizeof(path), "%s/%s", dir_name, dent->d_name);
 		if (stat(path, &st))
 			continue;
 
@@ -1765,8 +1787,6 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 			    !strcmp(dent->d_name, ".."))
 				continue;
 
-			snprintf(path, sizeof(path), "%s/%s",
-				 dir_name, dent->d_name);
 			ret = map_groups__set_modules_path_dir(mg, path);
 			if (ret < 0)
 				goto out;
@@ -1786,9 +1806,6 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 						       dso_name);
 			if (map == NULL)
 				continue;
-
-			snprintf(path, sizeof(path), "%s/%s",
-				 dir_name, dent->d_name);
 
 			long_name = strdup(path);
 			if (long_name == NULL) {
@@ -2608,10 +2625,10 @@ int symbol__init(void)
 	symbol_conf.initialized = true;
 	return 0;
 
-out_free_dso_list:
-	strlist__delete(symbol_conf.dso_list);
 out_free_comm_list:
 	strlist__delete(symbol_conf.comm_list);
+out_free_dso_list:
+	strlist__delete(symbol_conf.dso_list);
 	return -1;
 }
 

@@ -188,14 +188,13 @@ ip_vs_conn_stats(struct ip_vs_conn *cp, struct ip_vs_service *svc)
 }
 
 
-static inline int
+static inline void
 ip_vs_set_state(struct ip_vs_conn *cp, int direction,
 		const struct sk_buff *skb,
 		struct ip_vs_proto_data *pd)
 {
-	if (unlikely(!pd->pp->state_transition))
-		return 0;
-	return pd->pp->state_transition(cp, direction, skb, pd);
+	if (likely(pd->pp->state_transition))
+		pd->pp->state_transition(cp, direction, skb, pd);
 }
 
 static inline int
@@ -233,6 +232,7 @@ ip_vs_sched_persist(struct ip_vs_service *svc,
 	__be16 dport = 0;		/* destination port to forward */
 	unsigned int flags;
 	struct ip_vs_conn_param param;
+	const union nf_inet_addr fwmark = { .ip = htonl(svc->fwmark) };
 	union nf_inet_addr snet;	/* source network of the client,
 					   after masking */
 
@@ -268,7 +268,6 @@ ip_vs_sched_persist(struct ip_vs_service *svc,
 	{
 		int protocol = iph.protocol;
 		const union nf_inet_addr *vaddr = &iph.daddr;
-		const union nf_inet_addr fwmark = { .ip = htonl(svc->fwmark) };
 		__be16 vport = 0;
 
 		if (dst_port == svc->port) {
@@ -530,7 +529,7 @@ int ip_vs_leave(struct ip_vs_service *svc, struct sk_buff *skb,
 	   a cache_bypass connection entry */
 	ipvs = net_ipvs(net);
 	if (ipvs->sysctl_cache_bypass && svc->fwmark && unicast) {
-		int ret, cs;
+		int ret;
 		struct ip_vs_conn *cp;
 		unsigned int flags = (svc->flags & IP_VS_SVC_F_ONEPACKET &&
 				      iph.protocol == IPPROTO_UDP)?
@@ -557,7 +556,7 @@ int ip_vs_leave(struct ip_vs_service *svc, struct sk_buff *skb,
 		ip_vs_in_stats(cp, skb);
 
 		/* set state */
-		cs = ip_vs_set_state(cp, IP_VS_DIR_INPUT, skb, pd);
+		ip_vs_set_state(cp, IP_VS_DIR_INPUT, skb, pd);
 
 		/* transmit the first SYN packet */
 		ret = cp->packet_xmit(skb, cp, pd->pp);
@@ -984,7 +983,7 @@ static int ip_vs_out_icmp_v6(struct sk_buff *skb, int *related,
 	if (!cp)
 		return NF_ACCEPT;
 
-	ipv6_addr_copy(&snet.in6, &iph->saddr);
+	snet.in6 = iph->saddr;
 	return handle_response_icmp(AF_INET6, skb, &snet, cih->nexthdr, cp,
 				    pp, offset, sizeof(struct ipv6hdr));
 }
@@ -1490,7 +1489,7 @@ ip_vs_in(unsigned int hooknum, struct sk_buff *skb, int af)
 	struct ip_vs_protocol *pp;
 	struct ip_vs_proto_data *pd;
 	struct ip_vs_conn *cp;
-	int ret, restart, pkts;
+	int ret, pkts;
 	struct netns_ipvs *ipvs;
 
 	/* Already marked as IPVS request or reply? */
@@ -1591,7 +1590,7 @@ ip_vs_in(unsigned int hooknum, struct sk_buff *skb, int af)
 	}
 
 	ip_vs_in_stats(cp, skb);
-	restart = ip_vs_set_state(cp, IP_VS_DIR_INPUT, skb, pd);
+	ip_vs_set_state(cp, IP_VS_DIR_INPUT, skb, pd);
 	if (cp->packet_xmit)
 		ret = cp->packet_xmit(skb, cp, pp);
 		/* do not touch skb anymore */
@@ -1878,10 +1877,9 @@ static int __net_init __ip_vs_init(struct net *net)
 	struct netns_ipvs *ipvs;
 
 	ipvs = net_generic(net, ip_vs_net_id);
-	if (ipvs == NULL) {
-		pr_err("%s(): no memory.\n", __func__);
+	if (ipvs == NULL)
 		return -ENOMEM;
-	}
+
 	/* Hold the beast until a service is registerd */
 	ipvs->enable = 0;
 	ipvs->net = net;
@@ -1926,6 +1924,7 @@ protocol_fail:
 control_fail:
 	ip_vs_estimator_net_cleanup(net);
 estimator_fail:
+	net->ipvs = NULL;
 	return -ENOMEM;
 }
 
@@ -1938,6 +1937,7 @@ static void __net_exit __ip_vs_cleanup(struct net *net)
 	ip_vs_control_net_cleanup(net);
 	ip_vs_estimator_net_cleanup(net);
 	IP_VS_DBG(2, "ipvs netns %d released\n", net_ipvs(net)->gen);
+	net->ipvs = NULL;
 }
 
 static void __net_exit __ip_vs_dev_cleanup(struct net *net)
@@ -1995,10 +1995,18 @@ static int __init ip_vs_init(void)
 		goto cleanup_dev;
 	}
 
+	ret = ip_vs_register_nl_ioctl();
+	if (ret < 0) {
+		pr_err("can't register netlink/ioctl.\n");
+		goto cleanup_hooks;
+	}
+
 	pr_info("ipvs loaded.\n");
 
 	return ret;
 
+cleanup_hooks:
+	nf_unregister_hooks(ip_vs_ops, ARRAY_SIZE(ip_vs_ops));
 cleanup_dev:
 	unregister_pernet_device(&ipvs_core_dev_ops);
 cleanup_sub:
@@ -2014,6 +2022,7 @@ exit:
 
 static void __exit ip_vs_cleanup(void)
 {
+	ip_vs_unregister_nl_ioctl();
 	nf_unregister_hooks(ip_vs_ops, ARRAY_SIZE(ip_vs_ops));
 	unregister_pernet_device(&ipvs_core_dev_ops);
 	unregister_pernet_subsys(&ipvs_core_ops);	/* free ip_vs struct */

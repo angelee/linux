@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2003 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2003 - 2012 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -31,7 +31,6 @@
 #include <linux/delay.h>
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
-#include <linux/wireless.h>
 #include <net/mac80211.h>
 #include <linux/etherdevice.h>
 #include <asm/unaligned.h>
@@ -41,6 +40,7 @@
 #include "iwl-agn.h"
 #include "iwl-io.h"
 #include "iwl-trans.h"
+#include "iwl-shared.h"
 
 /* Throughput		OFF time(ms)	ON time (ms)
  *	>300			25		25
@@ -71,7 +71,7 @@ static const struct ieee80211_tpt_blink iwl_blink[] = {
 /* Set led register off */
 void iwlagn_led_enable(struct iwl_priv *priv)
 {
-	iwl_write32(priv, CSR_LED_REG, CSR_LED_REG_TRUN_ON);
+	iwl_write32(trans(priv), CSR_LED_REG, CSR_LED_REG_TRUN_ON);
 }
 
 /*
@@ -104,15 +104,15 @@ static int iwl_send_led_cmd(struct iwl_priv *priv, struct iwl_led_cmd *led_cmd)
 		.len = { sizeof(struct iwl_led_cmd), },
 		.data = { led_cmd, },
 		.flags = CMD_ASYNC,
-		.callback = NULL,
 	};
 	u32 reg;
 
-	reg = iwl_read32(priv, CSR_LED_REG);
+	reg = iwl_read32(trans(priv), CSR_LED_REG);
 	if (reg != (reg & CSR_LED_BSM_CTRL_MSK))
-		iwl_write32(priv, CSR_LED_REG, reg & CSR_LED_BSM_CTRL_MSK);
+		iwl_write32(trans(priv), CSR_LED_REG,
+			    reg & CSR_LED_BSM_CTRL_MSK);
 
-	return trans_send_cmd(&priv->trans, &cmd);
+	return iwl_dvm_send_cmd(priv, &cmd);
 }
 
 /* Set led pattern command */
@@ -138,11 +138,11 @@ static int iwl_led_cmd(struct iwl_priv *priv,
 	}
 
 	IWL_DEBUG_LED(priv, "Led blink time compensation=%u\n",
-			priv->cfg->base_params->led_compensation);
+			cfg(priv)->base_params->led_compensation);
 	led_cmd.on = iwl_blink_compensation(priv, on,
-				priv->cfg->base_params->led_compensation);
+				cfg(priv)->base_params->led_compensation);
 	led_cmd.off = iwl_blink_compensation(priv, off,
-				priv->cfg->base_params->led_compensation);
+				cfg(priv)->base_params->led_compensation);
 
 	ret = iwl_send_led_cmd(priv, &led_cmd);
 	if (!ret) {
@@ -178,8 +178,12 @@ void iwl_leds_init(struct iwl_priv *priv)
 	int mode = iwlagn_mod_params.led_mode;
 	int ret;
 
+	if (mode == IWL_LED_DISABLE) {
+		IWL_INFO(priv, "Led disabled\n");
+		return;
+	}
 	if (mode == IWL_LED_DEFAULT)
-		mode = priv->cfg->led_mode;
+		mode = cfg(priv)->led_mode;
 
 	priv->led.name = kasprintf(GFP_KERNEL, "%s-led",
 				   wiphy_name(priv->hw->wiphy));
@@ -203,8 +207,7 @@ void iwl_leds_init(struct iwl_priv *priv)
 		break;
 	}
 
-	ret = led_classdev_register(priv->bus->dev,
-				    &priv->led);
+	ret = led_classdev_register(trans(priv)->dev, &priv->led);
 	if (ret) {
 		kfree(priv->led.name);
 		return;

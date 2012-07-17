@@ -27,7 +27,6 @@ struct pscsi_plugin_task {
 	int	pscsi_direction;
 	int	pscsi_result;
 	u32	pscsi_resid;
-	struct request *pscsi_req;
 	unsigned char pscsi_cdb[0];
 } ____cacheline_aligned;
 
@@ -50,7 +49,7 @@ struct pscsi_dev_virt {
 } ____cacheline_aligned;
 
 typedef enum phv_modes {
-	PHV_VIRUTAL_HOST_ID,
+	PHV_VIRTUAL_HOST_ID,
 	PHV_LLD_SCSI_HOST_NO
 } phv_modes_t;
 

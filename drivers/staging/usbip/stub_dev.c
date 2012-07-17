@@ -19,6 +19,7 @@
 
 #include <linux/device.h>
 #include <linux/kthread.h>
+#include <linux/module.h>
 
 #include "usbip_common.h"
 #include "stub.h"
@@ -108,11 +109,6 @@ static ssize_t store_sockfd(struct device *dev, struct device_attribute *attr,
 			spin_unlock(&sdev->ud.lock);
 			return -EINVAL;
 		}
-#if 0
-		setnodelay(socket);
-		setkeepalive(socket);
-		setreuse(socket);
-#endif
 		sdev->ud.tcp_socket = socket;
 
 		spin_unlock(&sdev->ud.lock);
@@ -301,7 +297,6 @@ static struct stub_device *stub_device_alloc(struct usb_device *udev,
 	sdev->devid		= (busnum << 16) | devnum;
 	sdev->ud.side		= USBIP_STUB;
 	sdev->ud.status		= SDEV_ST_AVAILABLE;
-	/* sdev->ud.lock = SPIN_LOCK_UNLOCKED; */
 	spin_lock_init(&sdev->ud.lock);
 	sdev->ud.tcp_socket	= NULL;
 
@@ -310,7 +305,6 @@ static struct stub_device *stub_device_alloc(struct usb_device *udev,
 	INIT_LIST_HEAD(&sdev->priv_free);
 	INIT_LIST_HEAD(&sdev->unlink_free);
 	INIT_LIST_HEAD(&sdev->unlink_tx);
-	/* sdev->priv_lock = SPIN_LOCK_UNLOCKED; */
 	spin_lock_init(&sdev->priv_lock);
 
 	init_waitqueue_head(&sdev->tx_waitq);
@@ -524,11 +518,11 @@ static void stub_disconnect(struct usb_interface *interface)
 	}
 }
 
-/* 
+/*
  * Presence of pre_reset and post_reset prevents the driver from being unbound
  * when the device is being reset
  */
- 
+
 int stub_pre_reset(struct usb_interface *interface)
 {
 	dev_dbg(&interface->dev, "pre_reset\n");
@@ -548,4 +542,4 @@ struct usb_driver stub_driver = {
 	.id_table	= stub_table,
 	.pre_reset	= stub_pre_reset,
 	.post_reset	= stub_post_reset,
- };
+};

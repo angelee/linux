@@ -5,6 +5,7 @@
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
+#include <linux/module.h>
 #include <linux/spi/pxa2xx_spi.h>
 
 struct ce4100_info {
@@ -150,7 +151,7 @@ static void __devexit ce4100_spi_remove(struct pci_dev *dev)
 	kfree(spi_info);
 }
 
-static struct pci_device_id ce4100_spi_devices[] __devinitdata = {
+static DEFINE_PCI_DEVICE_TABLE(ce4100_spi_devices) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x2e6a) },
 	{ },
 };

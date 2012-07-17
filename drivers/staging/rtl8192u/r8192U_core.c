@@ -105,7 +105,6 @@ u32 rt_global_debug_component = \
 
 static const struct usb_device_id rtl8192_usb_id_tbl[] = {
 	/* Realtek */
-	{USB_DEVICE(0x0bda, 0x8192)},
 	{USB_DEVICE(0x0bda, 0x8709)},
 	/* Corega */
 	{USB_DEVICE(0x07aa, 0x0043)},
@@ -5739,7 +5738,7 @@ static const struct net_device_ops rtl8192_netdev_ops = {
 	.ndo_get_stats          = rtl8192_stats,
 	.ndo_tx_timeout         = tx_timeout,
 	.ndo_do_ioctl           = rtl8192_ioctl,
-	.ndo_set_multicast_list = r8192_set_multicast,
+	.ndo_set_rx_mode	= r8192_set_multicast,
 	.ndo_set_mac_address    = r8192_set_mac_adr,
 	.ndo_validate_addr      = eth_validate_addr,
 	.ndo_change_mtu         = eth_change_mtu,

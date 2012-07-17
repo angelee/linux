@@ -22,7 +22,6 @@
 #define _V4L2_CTRLS_H
 
 #include <linux/list.h>
-#include <linux/device.h>
 #include <linux/videodev2.h>
 
 /* forward references */
@@ -33,6 +32,7 @@ struct video_device;
 struct v4l2_subdev;
 struct v4l2_subscribed_event;
 struct v4l2_fh;
+struct poll_table_struct;
 
 /** struct v4l2_ctrl_ops - The control operations that the driver has to provide.
   * @g_volatile_ctrl: Get a new value for this control. Generally only relevant
@@ -65,14 +65,12 @@ struct v4l2_ctrl_ops {
   * @is_private: If set, then this control is private to its handler and it
   *		will not be added to any other handlers. Drivers can set
   *		this flag.
-  * @is_volatile: If set, then this control is volatile. This means that the
-  *		control's current value cannot be cached and needs to be
-  *		retrieved through the g_volatile_ctrl op. Drivers can set
-  *		this flag.
   * @is_auto:   If set, then this control selects whether the other cluster
   *		members are in 'automatic' mode or 'manual' mode. This is
   *		used for autogain/gain type clusters. Drivers should never
   *		set this flag directly.
+  * @has_volatiles: If set, then one or more members of the cluster are volatile.
+  *		Drivers should never touch this flag.
   * @manual_mode_value: If the is_auto flag is set, then this is the value
   *		of the auto control that determines if that control is in
   *		manual mode. So if the value of the auto control equals this
@@ -118,8 +116,8 @@ struct v4l2_ctrl {
 
 	unsigned int is_new:1;
 	unsigned int is_private:1;
-	unsigned int is_volatile:1;
 	unsigned int is_auto:1;
+	unsigned int has_volatiles:1;
 	unsigned int manual_mode_value:8;
 
 	const struct v4l2_ctrl_ops *ops;
@@ -208,9 +206,6 @@ struct v4l2_ctrl_handler {
   *		must be NULL.
   * @is_private: If set, then this control is private to its handler and it
   *		will not be added to any other handlers.
-  * @is_volatile: If set, then this control is volatile. This means that the
-  *		control's current value cannot be cached and needs to be
-  *		retrieved through the g_volatile_ctrl op.
   */
 struct v4l2_ctrl_config {
 	const struct v4l2_ctrl_ops *ops;
@@ -225,7 +220,6 @@ struct v4l2_ctrl_config {
 	u32 menu_skip_mask;
 	const char * const *qmenu;
 	unsigned int is_private:1;
-	unsigned int is_volatile:1;
 };
 
 /** v4l2_ctrl_fill() - Fill in the control fields based on the control ID.
@@ -389,8 +383,7 @@ void v4l2_ctrl_cluster(unsigned ncontrols, struct v4l2_ctrl **controls);
   * @manual_val: The value for the first control in the cluster that equals the
   *		manual setting.
   * @set_volatile: If true, then all controls except the first auto control will
-  *		have is_volatile set to true. If false, then is_volatile will not
-  *		be touched.
+  *		be volatile.
   *
   * Use for control groups where one control selects some automatic feature and
   * the other controls are only active whenever the automatic feature is turned
@@ -498,6 +491,18 @@ void v4l2_ctrl_add_event(struct v4l2_ctrl *ctrl,
 		struct v4l2_subscribed_event *sev);
 void v4l2_ctrl_del_event(struct v4l2_ctrl *ctrl,
 		struct v4l2_subscribed_event *sev);
+
+/* Can be used as a vidioc_log_status function that just dumps all controls
+   associated with the filehandle. */
+int v4l2_ctrl_log_status(struct file *file, void *fh);
+
+/* Can be used as a vidioc_subscribe_event function that just subscribes
+   control events. */
+int v4l2_ctrl_subscribe_event(struct v4l2_fh *fh,
+				struct v4l2_event_subscription *sub);
+
+/* Can be used as a poll function that just polls for control events. */
+unsigned int v4l2_ctrl_poll(struct file *file, struct poll_table_struct *wait);
 
 /* Helpers for ioctl_ops. If hdl == NULL then they will all return -EINVAL. */
 int v4l2_queryctrl(struct v4l2_ctrl_handler *hdl, struct v4l2_queryctrl *qc);

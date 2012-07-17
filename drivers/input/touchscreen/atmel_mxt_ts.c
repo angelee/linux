@@ -910,12 +910,17 @@ static ssize_t mxt_object_show(struct device *dev,
 	for (i = 0; i < data->info.object_num; i++) {
 		object = data->object_table + i;
 
-		count += sprintf(buf + count,
-				"Object Table Element %d(Type %d)\n",
+		count += snprintf(buf + count, PAGE_SIZE - count,
+				"Object[%d] (Type %d)\n",
 				i + 1, object->type);
+		if (count >= PAGE_SIZE)
+			return PAGE_SIZE - 1;
 
 		if (!mxt_object_readable(object->type)) {
-			count += sprintf(buf + count, "\n");
+			count += snprintf(buf + count, PAGE_SIZE - count,
+					"\n");
+			if (count >= PAGE_SIZE)
+				return PAGE_SIZE - 1;
 			continue;
 		}
 
@@ -925,11 +930,15 @@ static ssize_t mxt_object_show(struct device *dev,
 			if (error)
 				return error;
 
-			count += sprintf(buf + count,
-					"  Byte %d: 0x%x (%d)\n", j, val, val);
+			count += snprintf(buf + count, PAGE_SIZE - count,
+					"\t[%2d]: %02x (%d)\n", j, val, val);
+			if (count >= PAGE_SIZE)
+				return PAGE_SIZE - 1;
 		}
 
-		count += sprintf(buf + count, "\n");
+		count += snprintf(buf + count, PAGE_SIZE - count, "\n");
+		if (count >= PAGE_SIZE)
+			return PAGE_SIZE - 1;
 	}
 
 	return count;
@@ -1258,18 +1267,7 @@ static struct i2c_driver mxt_driver = {
 	.id_table	= mxt_id,
 };
 
-static int __init mxt_init(void)
-{
-	return i2c_add_driver(&mxt_driver);
-}
-
-static void __exit mxt_exit(void)
-{
-	i2c_del_driver(&mxt_driver);
-}
-
-module_init(mxt_init);
-module_exit(mxt_exit);
+module_i2c_driver(mxt_driver);
 
 /* Module information */
 MODULE_AUTHOR("Joonyoung Shim <jy0922.shim@samsung.com>");

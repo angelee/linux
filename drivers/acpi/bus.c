@@ -250,6 +250,10 @@ static int __acpi_bus_set_power(struct acpi_device *device, int state)
 		return -ENODEV;
 	}
 
+	/* For D3cold we should execute _PS3, not _PS4. */
+	if (state == ACPI_STATE_D3_COLD)
+		object_name[3] = '3';
+
 	/*
 	 * Transition Power
 	 * ----------------
@@ -911,10 +915,7 @@ void __init acpi_early_init(void)
 	}
 #endif
 
-	status =
-	    acpi_enable_subsystem(~
-				  (ACPI_NO_HARDWARE_INIT |
-				   ACPI_NO_ACPI_ENABLE));
+	status = acpi_enable_subsystem(~ACPI_NO_ACPI_ENABLE);
 	if (ACPI_FAILURE(status)) {
 		printk(KERN_ERR PREFIX "Unable to enable ACPI\n");
 		goto error0;
@@ -935,8 +936,7 @@ static int __init acpi_bus_init(void)
 
 	acpi_os_initialize1();
 
-	status =
-	    acpi_enable_subsystem(ACPI_NO_HARDWARE_INIT | ACPI_NO_ACPI_ENABLE);
+	status = acpi_enable_subsystem(ACPI_NO_ACPI_ENABLE);
 	if (ACPI_FAILURE(status)) {
 		printk(KERN_ERR PREFIX
 		       "Unable to start the ACPI Interpreter\n");
@@ -1014,6 +1014,7 @@ static int __init acpi_bus_init(void)
 }
 
 struct kobject *acpi_kobj;
+EXPORT_SYMBOL_GPL(acpi_kobj);
 
 static int __init acpi_init(void)
 {

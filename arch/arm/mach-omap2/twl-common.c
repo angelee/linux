@@ -30,10 +30,21 @@
 #include <plat/usb.h>
 
 #include "twl-common.h"
+#include "pm.h"
 
 static struct i2c_board_info __initdata pmic_i2c_board_info = {
 	.addr		= 0x48,
 	.flags		= I2C_CLIENT_WAKE,
+};
+
+static struct i2c_board_info __initdata omap4_i2c1_board_info[] = {
+	{
+		.addr		= 0x48,
+		.flags		= I2C_CLIENT_WAKE,
+	},
+	{
+		I2C_BOARD_INFO("twl6040", 0x4b),
+	},
 };
 
 void __init omap_pmic_init(int bus, u32 clkrate,
@@ -46,6 +57,33 @@ void __init omap_pmic_init(int bus, u32 clkrate,
 	pmic_i2c_board_info.platform_data = pmic_data;
 
 	omap_register_i2c_bus(bus, clkrate, &pmic_i2c_board_info, 1);
+}
+
+void __init omap4_pmic_init(const char *pmic_type,
+		    struct twl4030_platform_data *pmic_data,
+		    struct twl6040_platform_data *twl6040_data, int twl6040_irq)
+{
+	/* PMIC part*/
+	strncpy(omap4_i2c1_board_info[0].type, pmic_type,
+		sizeof(omap4_i2c1_board_info[0].type));
+	omap4_i2c1_board_info[0].irq = OMAP44XX_IRQ_SYS_1N;
+	omap4_i2c1_board_info[0].platform_data = pmic_data;
+
+	/* TWL6040 audio IC part */
+	omap4_i2c1_board_info[1].irq = twl6040_irq;
+	omap4_i2c1_board_info[1].platform_data = twl6040_data;
+
+	omap_register_i2c_bus(1, 400, omap4_i2c1_board_info, 2);
+
+}
+
+void __init omap_pmic_late_init(void)
+{
+	/* Init the OMAP TWL parameters (if PMIC has been registerd) */
+	if (pmic_i2c_board_info.irq)
+		omap3_twl_init();
+	if (omap4_i2c1_board_info[0].irq)
+		omap4_twl_init();
 }
 
 #if defined(CONFIG_ARCH_OMAP3)
@@ -99,7 +137,7 @@ static struct regulator_init_data omap3_vdac_idata = {
 
 static struct regulator_consumer_supply omap3_vpll2_supplies[] = {
 	REGULATOR_SUPPLY("vdds_dsi", "omapdss"),
-	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi1"),
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.0"),
 };
 
 static struct regulator_init_data omap3_vpll2_idata = {
@@ -235,6 +273,12 @@ static struct regulator_init_data omap4_vana_idata = {
 	},
 };
 
+static struct regulator_consumer_supply omap4_vcxio_supply[] = {
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dss"),
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.0"),
+	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi.1"),
+};
+
 static struct regulator_init_data omap4_vcxio_idata = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -243,14 +287,16 @@ static struct regulator_init_data omap4_vcxio_idata = {
 					| REGULATOR_MODE_STANDBY,
 		.valid_ops_mask		= REGULATOR_CHANGE_MODE
 					| REGULATOR_CHANGE_STATUS,
+		.always_on		= true,
 	},
+	.num_consumer_supplies	= ARRAY_SIZE(omap4_vcxio_supply),
+	.consumer_supplies	= omap4_vcxio_supply,
 };
 
 static struct regulator_init_data omap4_vusb_idata = {
 	.constraints = {
 		.min_uV			= 3300000,
 		.max_uV			= 3300000,
-		.apply_uV		= true,
 		.valid_modes_mask	= REGULATOR_MODE_NORMAL
 					| REGULATOR_MODE_STANDBY,
 		.valid_ops_mask		= REGULATOR_CHANGE_MODE

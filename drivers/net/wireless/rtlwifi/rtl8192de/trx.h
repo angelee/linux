@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2009-2010  Realtek Corporation.
+ * Copyright(c) 2009-2012  Realtek Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -536,12 +536,6 @@ do {							\
 	else						\
 		memset((void *)__pdesc, 0, _size);	\
 } while (0);
-
-#define RX_HAL_IS_CCK_RATE(_pdesc)\
-	(_pdesc->rxmcs == DESC92D_RATE1M ||		\
-	 _pdesc->rxmcs == DESC92D_RATE2M ||		\
-	 _pdesc->rxmcs == DESC92D_RATE5_5M ||		\
-	 _pdesc->rxmcs == DESC92D_RATE11M)
 
 /* For 92D early mode */
 #define SET_EARLYMODE_PKTNUM(__paddr, __value)		\

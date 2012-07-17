@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2011 B.A.T.M.A.N. contributors:
+ * Copyright (C) 2007-2012 B.A.T.M.A.N. contributors:
  *
  * Marek Lindner, Simon Wunderlich
  *
@@ -25,14 +25,14 @@
 #define ETH_P_BATMAN  0x4305	/* unofficial/not registered Ethertype */
 
 enum bat_packettype {
-	BAT_PACKET       = 0x01,
-	BAT_ICMP         = 0x02,
-	BAT_UNICAST      = 0x03,
-	BAT_BCAST        = 0x04,
-	BAT_VIS          = 0x05,
+	BAT_OGM		 = 0x01,
+	BAT_ICMP	 = 0x02,
+	BAT_UNICAST	 = 0x03,
+	BAT_BCAST	 = 0x04,
+	BAT_VIS		 = 0x05,
 	BAT_UNICAST_FRAG = 0x06,
-	BAT_TT_QUERY     = 0x07,
-	BAT_ROAM_ADV     = 0x08
+	BAT_TT_QUERY	 = 0x07,
+	BAT_ROAM_ADV	 = 0x08
 };
 
 /* this file is included by batctl which needs these defines */
@@ -84,15 +84,20 @@ enum tt_query_flags {
 enum tt_client_flags {
 	TT_CLIENT_DEL     = 1 << 0,
 	TT_CLIENT_ROAM    = 1 << 1,
+	TT_CLIENT_WIFI    = 1 << 2,
 	TT_CLIENT_NOPURGE = 1 << 8,
 	TT_CLIENT_NEW     = 1 << 9,
 	TT_CLIENT_PENDING = 1 << 10
 };
 
-struct batman_packet {
+struct batman_header {
 	uint8_t  packet_type;
 	uint8_t  version;  /* batman version field */
 	uint8_t  ttl;
+} __packed;
+
+struct batman_ogm_packet {
+	struct batman_header header;
 	uint8_t  flags;    /* 0x40: DIRECTLINK flag, 0x20 VIS_SERVER flag... */
 	uint32_t seqno;
 	uint8_t  orig[6];
@@ -104,12 +109,10 @@ struct batman_packet {
 	uint16_t tt_crc;
 } __packed;
 
-#define BAT_PACKET_LEN sizeof(struct batman_packet)
+#define BATMAN_OGM_LEN sizeof(struct batman_ogm_packet)
 
 struct icmp_packet {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  msg_type; /* see ICMP message types above */
 	uint8_t  dst[6];
 	uint8_t  orig[6];
@@ -123,9 +126,7 @@ struct icmp_packet {
 /* icmp_packet_rr must start with all fields from imcp_packet
  * as this is assumed by code that handles ICMP packets */
 struct icmp_packet_rr {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  msg_type; /* see ICMP message types above */
 	uint8_t  dst[6];
 	uint8_t  orig[6];
@@ -136,17 +137,13 @@ struct icmp_packet_rr {
 } __packed;
 
 struct unicast_packet {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  ttvn; /* destination translation table version number */
 	uint8_t  dest[6];
 } __packed;
 
 struct unicast_frag_packet {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  ttvn; /* destination translation table version number */
 	uint8_t  dest[6];
 	uint8_t  flags;
@@ -156,18 +153,14 @@ struct unicast_frag_packet {
 } __packed;
 
 struct bcast_packet {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  reserved;
 	uint32_t seqno;
 	uint8_t  orig[6];
 } __packed;
 
 struct vis_packet {
-	uint8_t  packet_type;
-	uint8_t  version;        /* batman version field */
-	uint8_t  ttl;		 /* TTL */
+	struct batman_header header;
 	uint8_t  vis_type;	 /* which type of vis-participant sent this? */
 	uint32_t seqno;		 /* sequence number */
 	uint8_t  entries;	 /* number of entries behind this struct */
@@ -178,9 +171,7 @@ struct vis_packet {
 } __packed;
 
 struct tt_query_packet {
-	uint8_t  packet_type;
-	uint8_t  version;  /* batman version field */
-	uint8_t  ttl;
+	struct batman_header header;
 	/* the flag field is a combination of:
 	 * - TT_REQUEST or TT_RESPONSE
 	 * - TT_FULL_TABLE */
@@ -201,9 +192,7 @@ struct tt_query_packet {
 } __packed;
 
 struct roam_adv_packet {
-	uint8_t  packet_type;
-	uint8_t  version;
-	uint8_t  ttl;
+	struct batman_header header;
 	uint8_t  reserved;
 	uint8_t  dst[ETH_ALEN];
 	uint8_t  src[ETH_ALEN];

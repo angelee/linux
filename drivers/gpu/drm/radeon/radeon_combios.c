@@ -620,8 +620,8 @@ static struct radeon_i2c_bus_rec combios_setup_i2c_bus(struct radeon_device *rde
 		i2c.y_data_mask = 0x80;
 	} else {
 		/* default masks for ddc pads */
-		i2c.mask_clk_mask = RADEON_GPIO_EN_1;
-		i2c.mask_data_mask = RADEON_GPIO_EN_0;
+		i2c.mask_clk_mask = RADEON_GPIO_MASK_1;
+		i2c.mask_data_mask = RADEON_GPIO_MASK_0;
 		i2c.a_clk_mask = RADEON_GPIO_A_1;
 		i2c.a_data_mask = RADEON_GPIO_A_0;
 		i2c.en_clk_mask = RADEON_GPIO_EN_1;
@@ -2563,14 +2563,17 @@ void radeon_combios_get_power_modes(struct radeon_device *rdev)
 
 	/* allocate 2 power states */
 	rdev->pm.power_state = kzalloc(sizeof(struct radeon_power_state) * 2, GFP_KERNEL);
-	if (!rdev->pm.power_state) {
-		rdev->pm.default_power_state_index = state_index;
-		rdev->pm.num_power_states = 0;
-
-		rdev->pm.current_power_state_index = rdev->pm.default_power_state_index;
-		rdev->pm.current_clock_mode_index = 0;
-		return;
-	}
+	if (rdev->pm.power_state) {
+		/* allocate 1 clock mode per state */
+		rdev->pm.power_state[0].clock_info =
+			kzalloc(sizeof(struct radeon_pm_clock_info) * 1, GFP_KERNEL);
+		rdev->pm.power_state[1].clock_info =
+			kzalloc(sizeof(struct radeon_pm_clock_info) * 1, GFP_KERNEL);
+		if (!rdev->pm.power_state[0].clock_info ||
+		    !rdev->pm.power_state[1].clock_info)
+			goto pm_failed;
+	} else
+		goto pm_failed;
 
 	/* check for a thermal chip */
 	offset = combios_get_table_offset(dev, COMBIOS_OVERDRIVE_INFO_TABLE);
@@ -2735,6 +2738,14 @@ default_mode:
 
 	rdev->pm.current_power_state_index = rdev->pm.default_power_state_index;
 	rdev->pm.current_clock_mode_index = 0;
+	return;
+
+pm_failed:
+	rdev->pm.default_power_state_index = state_index;
+	rdev->pm.num_power_states = 0;
+
+	rdev->pm.current_power_state_index = rdev->pm.default_power_state_index;
+	rdev->pm.current_clock_mode_index = 0;
 }
 
 void radeon_external_tmds_setup(struct drm_encoder *encoder)
@@ -2834,7 +2845,7 @@ bool radeon_combios_external_tmds_setup(struct drm_encoder *encoder)
 					case 4:
 						val = RBIOS16(index);
 						index += 2;
-						udelay(val * 1000);
+						mdelay(val);
 						break;
 					case 6:
 						slave_addr = id & 0xff;
@@ -3033,7 +3044,7 @@ static void combios_parse_pll_table(struct drm_device *dev, uint16_t offset)
 					udelay(150);
 					break;
 				case 2:
-					udelay(1000);
+					mdelay(1);
 					break;
 				case 3:
 					while (tmp--) {
@@ -3064,13 +3075,13 @@ static void combios_parse_pll_table(struct drm_device *dev, uint16_t offset)
 						/*mclk_cntl |= 0x00001111;*//* ??? */
 						WREG32_PLL(RADEON_MCLK_CNTL,
 							   mclk_cntl);
-						udelay(10000);
+						mdelay(10);
 #endif
 						WREG32_PLL
 						    (RADEON_CLK_PWRMGT_CNTL,
 						     tmp &
 						     ~RADEON_CG_NO1_DEBUG_0);
-						udelay(10000);
+						mdelay(10);
 					}
 					break;
 				default:

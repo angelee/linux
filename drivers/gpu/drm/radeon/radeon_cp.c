@@ -29,6 +29,8 @@
  *    Gareth Hughes <gareth@valinux.com>
  */
 
+#include <linux/module.h>
+
 #include "drmP.h"
 #include "drm.h"
 #include "drm_sarea.h"
@@ -2112,6 +2114,8 @@ int radeon_driver_load(struct drm_device *dev, unsigned long flags)
 		/* all other chips have no hierarchical z buffer */
 		break;
 	}
+
+	pci_set_master(dev->pdev);
 
 	if (drm_pci_device_is_agp(dev))
 		dev_priv->flags |= RADEON_IS_AGP;

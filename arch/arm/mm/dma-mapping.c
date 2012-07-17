@@ -18,12 +18,14 @@
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/highmem.h>
+#include <linux/slab.h>
 
 #include <asm/memory.h>
 #include <asm/highmem.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <asm/sizes.h>
+#include <asm/mach/arch.h>
 
 #include "mm.h"
 
@@ -117,26 +119,36 @@ static void __dma_free_buffer(struct page *page, size_t size)
 }
 
 #ifdef CONFIG_MMU
-/* Sanity check size */
-#if (CONSISTENT_DMA_SIZE % SZ_2M)
-#error "CONSISTENT_DMA_SIZE must be multiple of 2MiB"
-#endif
 
-#define CONSISTENT_OFFSET(x)	(((unsigned long)(x) - CONSISTENT_BASE) >> PAGE_SHIFT)
-#define CONSISTENT_PTE_INDEX(x) (((unsigned long)(x) - CONSISTENT_BASE) >> PGDIR_SHIFT)
-#define NUM_CONSISTENT_PTES (CONSISTENT_DMA_SIZE >> PGDIR_SHIFT)
+#define CONSISTENT_OFFSET(x)	(((unsigned long)(x) - consistent_base) >> PAGE_SHIFT)
+#define CONSISTENT_PTE_INDEX(x) (((unsigned long)(x) - consistent_base) >> PMD_SHIFT)
 
 /*
  * These are the page tables (2MB each) covering uncached, DMA consistent allocations
  */
-static pte_t *consistent_pte[NUM_CONSISTENT_PTES];
+static pte_t **consistent_pte;
+
+#define DEFAULT_CONSISTENT_DMA_SIZE SZ_2M
+
+unsigned long consistent_base = CONSISTENT_END - DEFAULT_CONSISTENT_DMA_SIZE;
+
+void __init init_consistent_dma_size(unsigned long size)
+{
+	unsigned long base = CONSISTENT_END - ALIGN(size, SZ_2M);
+
+	BUG_ON(consistent_pte); /* Check we're called before DMA region init */
+	BUG_ON(base < VMALLOC_END);
+
+	/* Grow region to accommodate specified size  */
+	if (base < consistent_base)
+		consistent_base = base;
+}
 
 #include "vmregion.h"
 
 static struct arm_vmregion_head consistent_head = {
 	.vm_lock	= __SPIN_LOCK_UNLOCKED(&consistent_head.vm_lock),
 	.vm_list	= LIST_HEAD_INIT(consistent_head.vm_list),
-	.vm_start	= CONSISTENT_BASE,
 	.vm_end		= CONSISTENT_END,
 };
 
@@ -155,7 +167,17 @@ static int __init consistent_init(void)
 	pmd_t *pmd;
 	pte_t *pte;
 	int i = 0;
-	u32 base = CONSISTENT_BASE;
+	unsigned long base = consistent_base;
+	unsigned long num_ptes = (CONSISTENT_END - base) >> PMD_SHIFT;
+
+	consistent_pte = kmalloc(num_ptes * sizeof(pte_t), GFP_KERNEL);
+	if (!consistent_pte) {
+		pr_err("%s: no memory\n", __func__);
+		return -ENOMEM;
+	}
+
+	pr_debug("DMA memory: 0x%08lx - 0x%08lx:\n", base, CONSISTENT_END);
+	consistent_head.vm_start = base;
 
 	do {
 		pgd = pgd_offset(&init_mm, base);
@@ -183,7 +205,7 @@ static int __init consistent_init(void)
 		}
 
 		consistent_pte[i++] = pte;
-		base += (1 << PGDIR_SHIFT);
+		base += PMD_SIZE;
 	} while (base < CONSISTENT_END);
 
 	return ret;
@@ -192,13 +214,14 @@ static int __init consistent_init(void)
 core_initcall(consistent_init);
 
 static void *
-__dma_alloc_remap(struct page *page, size_t size, gfp_t gfp, pgprot_t prot)
+__dma_alloc_remap(struct page *page, size_t size, gfp_t gfp, pgprot_t prot,
+	const void *caller)
 {
 	struct arm_vmregion *c;
 	size_t align;
 	int bit;
 
-	if (!consistent_pte[0]) {
+	if (!consistent_pte) {
 		printk(KERN_ERR "%s: not initialised\n", __func__);
 		dump_stack();
 		return NULL;
@@ -219,7 +242,7 @@ __dma_alloc_remap(struct page *page, size_t size, gfp_t gfp, pgprot_t prot)
 	 * Allocate a virtual address in the consistent mapping region.
 	 */
 	c = arm_vmregion_alloc(&consistent_head, align, size,
-			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM));
+			    gfp & ~(__GFP_DMA | __GFP_HIGHMEM), caller);
 	if (c) {
 		pte_t *pte;
 		int idx = CONSISTENT_PTE_INDEX(c->vm_start);
@@ -298,17 +321,26 @@ static void __dma_free_remap(void *cpu_addr, size_t size)
 
 #else	/* !CONFIG_MMU */
 
-#define __dma_alloc_remap(page, size, gfp, prot)	page_address(page)
+#define __dma_alloc_remap(page, size, gfp, prot, c)	page_address(page)
 #define __dma_free_remap(addr, size)			do { } while (0)
 
 #endif	/* CONFIG_MMU */
 
 static void *
 __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gfp,
-	    pgprot_t prot)
+	    pgprot_t prot, const void *caller)
 {
 	struct page *page;
 	void *addr;
+
+	/*
+	 * Following is a work-around (a.k.a. hack) to prevent pages
+	 * with __GFP_COMP being passed to split_page() which cannot
+	 * handle them.  The real problem is that this flag probably
+	 * should be 0 on ARM as it is not supported on this
+	 * platform; see CONFIG_HUGETLBFS.
+	 */
+	gfp &= ~(__GFP_COMP);
 
 	*handle = ~0;
 	size = PAGE_ALIGN(size);
@@ -318,7 +350,7 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gfp,
 		return NULL;
 
 	if (!arch_is_coherent())
-		addr = __dma_alloc_remap(page, size, gfp, prot);
+		addr = __dma_alloc_remap(page, size, gfp, prot, caller);
 	else
 		addr = page_address(page);
 
@@ -343,7 +375,8 @@ dma_alloc_coherent(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gf
 		return memory;
 
 	return __dma_alloc(dev, size, handle, gfp,
-			   pgprot_dmacoherent(pgprot_kernel));
+			   pgprot_dmacoherent(pgprot_kernel),
+			   __builtin_return_address(0));
 }
 EXPORT_SYMBOL(dma_alloc_coherent);
 
@@ -355,7 +388,8 @@ void *
 dma_alloc_writecombine(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gfp)
 {
 	return __dma_alloc(dev, size, handle, gfp,
-			   pgprot_writecombine(pgprot_kernel));
+			   pgprot_writecombine(pgprot_kernel),
+			   __builtin_return_address(0));
 }
 EXPORT_SYMBOL(dma_alloc_writecombine);
 
@@ -692,6 +726,9 @@ EXPORT_SYMBOL(dma_set_mask);
 
 static int __init dma_debug_do_init(void)
 {
+#ifdef CONFIG_MMU
+	arm_vmregion_create_proc("dma-mappings", &consistent_head);
+#endif
 	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
 	return 0;
 }

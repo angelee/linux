@@ -24,6 +24,7 @@
 
 #include <linux/kernel.h>
 #include <linux/io.h>
+#include <linux/export.h>
 #include <linux/err.h>
 #include <linux/delay.h>
 #include <linux/seq_file.h>
@@ -32,7 +33,10 @@
 #include <linux/pm_runtime.h>
 
 #include <video/omapdss.h>
+
+#include <plat/cpu.h>
 #include <plat/clock.h>
+
 #include "dss.h"
 #include "dss_features.h"
 
@@ -639,6 +643,17 @@ void dss_select_hdmi_venc_clk_source(enum dss_hdmi_venc_clk_source_select hdmi)
 	REG_FLD_MOD(DSS_CONTROL, hdmi, 15, 15);	/* VENC_HDMI_SWITCH */
 }
 
+enum dss_hdmi_venc_clk_source_select dss_get_hdmi_venc_clk_source(void)
+{
+	enum omap_display_type displays;
+
+	displays = dss_feat_get_supported_displays(OMAP_DSS_CHANNEL_DIGIT);
+	if ((displays & OMAP_DISPLAY_TYPE_HDMI) == 0)
+		return DSS_VENC_TV_CLK;
+
+	return REG_GET(DSS_CONTROL, 15, 15);
+}
+
 static int dss_get_clocks(void)
 {
 	struct clk *clk;
@@ -691,11 +706,6 @@ static void dss_put_clocks(void)
 	clk_put(dss.dss_clk);
 }
 
-struct clk *dss_get_ick(void)
-{
-	return clk_get(&dss.pdev->dev, "ick");
-}
-
 int dss_runtime_get(void)
 {
 	int r;
@@ -713,7 +723,7 @@ void dss_runtime_put(void)
 
 	DSSDBG("dss_runtime_put\n");
 
-	r = pm_runtime_put(&dss.pdev->dev);
+	r = pm_runtime_put_sync(&dss.pdev->dev);
 	WARN_ON(r < 0);
 }
 
@@ -741,19 +751,19 @@ static int omap_dsshw_probe(struct platform_device *pdev)
 	dss_mem = platform_get_resource(dss.pdev, IORESOURCE_MEM, 0);
 	if (!dss_mem) {
 		DSSERR("can't get IORESOURCE_MEM DSS\n");
-		r = -EINVAL;
-		goto err_ioremap;
+		return -EINVAL;
 	}
-	dss.base = ioremap(dss_mem->start, resource_size(dss_mem));
+
+	dss.base = devm_ioremap(&pdev->dev, dss_mem->start,
+				resource_size(dss_mem));
 	if (!dss.base) {
 		DSSERR("can't ioremap DSS\n");
-		r = -ENOMEM;
-		goto err_ioremap;
+		return -ENOMEM;
 	}
 
 	r = dss_get_clocks();
 	if (r)
-		goto err_clocks;
+		return r;
 
 	pm_runtime_enable(&pdev->dev);
 
@@ -801,9 +811,6 @@ err_dpi:
 err_runtime_get:
 	pm_runtime_disable(&pdev->dev);
 	dss_put_clocks();
-err_clocks:
-	iounmap(dss.base);
-err_ioremap:
 	return r;
 }
 
@@ -811,8 +818,6 @@ static int omap_dsshw_remove(struct platform_device *pdev)
 {
 	dpi_exit();
 	sdi_exit();
-
-	iounmap(dss.base);
 
 	pm_runtime_disable(&pdev->dev);
 
@@ -824,13 +829,11 @@ static int omap_dsshw_remove(struct platform_device *pdev)
 static int dss_runtime_suspend(struct device *dev)
 {
 	dss_save_context();
-	clk_disable(dss.dss_clk);
 	return 0;
 }
 
 static int dss_runtime_resume(struct device *dev)
 {
-	clk_enable(dss.dss_clk);
 	dss_restore_context();
 	return 0;
 }

@@ -20,9 +20,9 @@
 #include <linux/fs.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
-#include <asm/opcode-tile.h>
 #include <asm/pgtable.h>
 #include <asm/homecache.h>
+#include <arch/opcode.h>
 
 #ifdef __tilegx__
 # define Elf_Rela Elf64_Rela
@@ -67,6 +67,8 @@ void *module_alloc(unsigned long size)
 	area = __get_vm_area(size, VM_ALLOC, MEM_MODULE_START, MEM_MODULE_END);
 	if (!area)
 		goto error;
+	area->nr_pages = npages;
+	area->pages = pages;
 
 	if (map_vm_area(area, prot_rwx, &pages)) {
 		vunmap(area->addr);

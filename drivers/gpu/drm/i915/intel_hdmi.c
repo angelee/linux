@@ -44,7 +44,7 @@ struct intel_hdmi {
 	uint32_t color_range;
 	bool has_hdmi_sink;
 	bool has_audio;
-	int force_audio;
+	enum hdmi_force_audio force_audio;
 	void (*write_infoframe)(struct drm_encoder *encoder,
 				struct dip_infoframe *frame);
 };
@@ -69,8 +69,7 @@ void intel_dip_infoframe_csum(struct dip_infoframe *frame)
 	frame->checksum = 0;
 	frame->ecc = 0;
 
-	/* Header isn't part of the checksum */
-	for (i = 5; i < frame->len; i++)
+	for (i = 0; i < frame->len + DIP_HEADER_SIZE; i++)
 		sum += data[i];
 
 	frame->checksum = 0x100 - sum;
@@ -104,7 +103,7 @@ static u32 intel_infoframe_flags(struct dip_infoframe *frame)
 		flags |= VIDEO_DIP_ENABLE_AVI | VIDEO_DIP_FREQ_VSYNC;
 		break;
 	case DIP_TYPE_SPD:
-		flags |= VIDEO_DIP_ENABLE_SPD | VIDEO_DIP_FREQ_2VSYNC;
+		flags |= VIDEO_DIP_ENABLE_SPD | VIDEO_DIP_FREQ_VSYNC;
 		break;
 	default:
 		DRM_DEBUG_DRIVER("unknown info frame type %d\n", frame->type);
@@ -137,7 +136,7 @@ static void i9xx_write_infoframe(struct drm_encoder *encoder,
 
 	val &= ~VIDEO_DIP_SELECT_MASK;
 
-	I915_WRITE(VIDEO_DIP_CTL, val | port | flags);
+	I915_WRITE(VIDEO_DIP_CTL, VIDEO_DIP_ENABLE | val | port | flags);
 
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(VIDEO_DIP_DATA, *data);
@@ -165,9 +164,9 @@ static void ironlake_write_infoframe(struct drm_encoder *encoder,
 
 	flags = intel_infoframe_index(frame);
 
-	val &= ~VIDEO_DIP_SELECT_MASK;
+	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
 
-	I915_WRITE(reg, val | flags);
+	I915_WRITE(reg, VIDEO_DIP_ENABLE | val | flags);
 
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
@@ -245,16 +244,17 @@ static void intel_hdmi_mode_set(struct drm_encoder *encoder,
 		sdvox |= HDMI_MODE_SELECT;
 
 	if (intel_hdmi->has_audio) {
+		DRM_DEBUG_DRIVER("Enabling HDMI audio on pipe %c\n",
+				 pipe_name(intel_crtc->pipe));
 		sdvox |= SDVO_AUDIO_ENABLE;
 		sdvox |= SDVO_NULL_PACKETS_DURING_VSYNC;
+		intel_write_eld(encoder, adjusted_mode);
 	}
 
-	if (intel_crtc->pipe == 1) {
-		if (HAS_PCH_CPT(dev))
-			sdvox |= PORT_TRANS_B_SEL_CPT;
-		else
-			sdvox |= SDVO_PIPE_B_SELECT;
-	}
+	if (HAS_PCH_CPT(dev))
+		sdvox |= PORT_TRANS_SEL_CPT(intel_crtc->pipe);
+	else if (intel_crtc->pipe == 1)
+		sdvox |= SDVO_PIPE_B_SELECT;
 
 	I915_WRITE(intel_hdmi->sdvox_reg, sdvox);
 	POSTING_READ(intel_hdmi->sdvox_reg);
@@ -269,6 +269,10 @@ static void intel_hdmi_dpms(struct drm_encoder *encoder, int mode)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_hdmi *intel_hdmi = enc_to_intel_hdmi(encoder);
 	u32 temp;
+	u32 enable_bits = SDVO_ENABLE;
+
+	if (intel_hdmi->has_audio)
+		enable_bits |= SDVO_AUDIO_ENABLE;
 
 	temp = I915_READ(intel_hdmi->sdvox_reg);
 
@@ -281,9 +285,9 @@ static void intel_hdmi_dpms(struct drm_encoder *encoder, int mode)
 	}
 
 	if (mode != DRM_MODE_DPMS_ON) {
-		temp &= ~SDVO_ENABLE;
+		temp &= ~enable_bits;
 	} else {
-		temp |= SDVO_ENABLE;
+		temp |= enable_bits;
 	}
 
 	I915_WRITE(intel_hdmi->sdvox_reg, temp);
@@ -335,7 +339,9 @@ intel_hdmi_detect(struct drm_connector *connector, bool force)
 	if (edid) {
 		if (edid->input & DRM_EDID_INPUT_DIGITAL) {
 			status = connector_status_connected;
-			intel_hdmi->has_hdmi_sink = drm_detect_hdmi_monitor(edid);
+			if (intel_hdmi->force_audio != HDMI_AUDIO_OFF_DVI)
+				intel_hdmi->has_hdmi_sink =
+						drm_detect_hdmi_monitor(edid);
 			intel_hdmi->has_audio = drm_detect_monitor_audio(edid);
 		}
 		connector->display_info.raw_edid = NULL;
@@ -343,8 +349,9 @@ intel_hdmi_detect(struct drm_connector *connector, bool force)
 	}
 
 	if (status == connector_status_connected) {
-		if (intel_hdmi->force_audio)
-			intel_hdmi->has_audio = intel_hdmi->force_audio > 0;
+		if (intel_hdmi->force_audio != HDMI_AUDIO_AUTO)
+			intel_hdmi->has_audio =
+				(intel_hdmi->force_audio == HDMI_AUDIO_ON);
 	}
 
 	return status;
@@ -398,7 +405,7 @@ intel_hdmi_set_property(struct drm_connector *connector,
 		return ret;
 
 	if (property == dev_priv->force_audio_property) {
-		int i = val;
+		enum hdmi_force_audio i = val;
 		bool has_audio;
 
 		if (i == intel_hdmi->force_audio)
@@ -406,13 +413,13 @@ intel_hdmi_set_property(struct drm_connector *connector,
 
 		intel_hdmi->force_audio = i;
 
-		if (i == 0)
+		if (i == HDMI_AUDIO_AUTO)
 			has_audio = intel_hdmi_detect_audio(connector);
 		else
-			has_audio = i > 0;
+			has_audio = (i == HDMI_AUDIO_ON);
 
-		if (has_audio == intel_hdmi->has_audio)
-			return 0;
+		if (i == HDMI_AUDIO_OFF_DVI)
+			intel_hdmi->has_hdmi_sink = 0;
 
 		intel_hdmi->has_audio = has_audio;
 		goto done;
@@ -486,6 +493,7 @@ void intel_hdmi_init(struct drm_device *dev, int sdvox_reg)
 	struct intel_encoder *intel_encoder;
 	struct intel_connector *intel_connector;
 	struct intel_hdmi *intel_hdmi;
+	int i;
 
 	intel_hdmi = kzalloc(sizeof(struct intel_hdmi), GFP_KERNEL);
 	if (!intel_hdmi)
@@ -509,9 +517,9 @@ void intel_hdmi_init(struct drm_device *dev, int sdvox_reg)
 	intel_encoder->type = INTEL_OUTPUT_HDMI;
 
 	connector->polled = DRM_CONNECTOR_POLL_HPD;
-	connector->interlace_allowed = 0;
+	connector->interlace_allowed = 1;
 	connector->doublescan_allowed = 0;
-	intel_encoder->crtc_mask = (1 << 0) | (1 << 1);
+	intel_encoder->crtc_mask = (1 << 0) | (1 << 1) | (1 << 2);
 
 	/* Set up the DDC bus. */
 	if (sdvox_reg == SDVOB) {
@@ -538,10 +546,14 @@ void intel_hdmi_init(struct drm_device *dev, int sdvox_reg)
 
 	intel_hdmi->sdvox_reg = sdvox_reg;
 
-	if (!HAS_PCH_SPLIT(dev))
+	if (!HAS_PCH_SPLIT(dev)) {
 		intel_hdmi->write_infoframe = i9xx_write_infoframe;
-	else
+		I915_WRITE(VIDEO_DIP_CTL, 0);
+	} else {
 		intel_hdmi->write_infoframe = ironlake_write_infoframe;
+		for_each_pipe(i)
+			I915_WRITE(TVIDEO_DIP_CTL(i), 0);
+	}
 
 	drm_encoder_helper_add(&intel_encoder->base, &intel_hdmi_helper_funcs);
 

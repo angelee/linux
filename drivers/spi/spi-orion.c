@@ -17,6 +17,7 @@
 #include <linux/io.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/orion_spi.h>
+#include <linux/module.h>
 #include <asm/unaligned.h>
 
 #define DRIVER_NAME			"orion_spi"
@@ -357,11 +358,6 @@ static int orion_spi_setup(struct spi_device *spi)
 	struct orion_spi *orion_spi;
 
 	orion_spi = spi_master_get_devdata(spi->master);
-
-	/* Fix ac timing if required.   */
-	if (orion_spi->spi_info->enable_clock_fix)
-		orion_spi_setbits(orion_spi, ORION_SPI_IF_CONFIG_REG,
-				  (1 << 14));
 
 	if ((spi->max_speed_hz == 0)
 			|| (spi->max_speed_hz > orion_spi->max_speed))

@@ -31,6 +31,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/slab.h>
 #include <linux/version.h>
@@ -258,7 +259,7 @@ static int adp1653_init_controls(struct adp1653_flash *flash)
 	if (flash->ctrls.error)
 		return flash->ctrls.error;
 
-	fault->is_volatile = 1;
+	fault->flags |= V4L2_CTRL_FLAG_VOLATILE;
 
 	flash->subdev.ctrl_handler = &flash->ctrls;
 	return 0;
@@ -413,6 +414,10 @@ static int adp1653_probe(struct i2c_client *client,
 	struct adp1653_flash *flash;
 	int ret;
 
+	/* we couldn't work without platform data */
+	if (client->dev.platform_data == NULL)
+		return -ENODEV;
+
 	flash = kzalloc(sizeof(*flash), GFP_KERNEL);
 	if (flash == NULL)
 		return -ENOMEM;
@@ -425,12 +430,21 @@ static int adp1653_probe(struct i2c_client *client,
 	flash->subdev.internal_ops = &adp1653_internal_ops;
 	flash->subdev.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 
-	adp1653_init_controls(flash);
+	ret = adp1653_init_controls(flash);
+	if (ret)
+		goto free_and_quit;
 
 	ret = media_entity_init(&flash->subdev.entity, 0, NULL, 0);
 	if (ret < 0)
-		kfree(flash);
+		goto free_and_quit;
 
+	flash->subdev.entity.type = MEDIA_ENT_T_V4L2_SUBDEV_FLASH;
+
+	return 0;
+
+free_and_quit:
+	v4l2_ctrl_handler_free(&flash->ctrls);
+	kfree(flash);
 	return ret;
 }
 
@@ -467,24 +481,7 @@ static struct i2c_driver adp1653_i2c_driver = {
 	.id_table	= adp1653_id_table,
 };
 
-static int __init adp1653_init(void)
-{
-	int rval;
-
-	rval = i2c_add_driver(&adp1653_i2c_driver);
-	if (rval)
-		printk(KERN_ALERT "%s: failed at i2c_add_driver\n", __func__);
-
-	return rval;
-}
-
-static void __exit adp1653_exit(void)
-{
-	i2c_del_driver(&adp1653_i2c_driver);
-}
-
-module_init(adp1653_init);
-module_exit(adp1653_exit);
+module_i2c_driver(adp1653_i2c_driver);
 
 MODULE_AUTHOR("Sakari Ailus <sakari.ailus@nokia.com>");
 MODULE_DESCRIPTION("Analog Devices ADP1653 LED flash driver");

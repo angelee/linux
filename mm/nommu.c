@@ -13,7 +13,7 @@
  *  Copyright (c) 2007-2010 Paul Mundt <lethal@linux-sh.org>
  */
 
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
 #include <linux/swap.h>
@@ -454,7 +454,7 @@ void  __attribute__((weak)) vmalloc_sync_all(void)
  *	between processes, it syncs the pagetable across all
  *	processes.
  */
-struct vm_struct *alloc_vm_area(size_t size)
+struct vm_struct *alloc_vm_area(size_t size, pte_t **ptes)
 {
 	BUG();
 	return NULL;
@@ -696,9 +696,11 @@ static void add_vma_to_mm(struct mm_struct *mm, struct vm_area_struct *vma)
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
 
+		mutex_lock(&mapping->i_mmap_mutex);
 		flush_dcache_mmap_lock(mapping);
 		vma_prio_tree_insert(vma, &mapping->i_mmap);
 		flush_dcache_mmap_unlock(mapping);
+		mutex_unlock(&mapping->i_mmap_mutex);
 	}
 
 	/* add the VMA to the tree */
@@ -760,9 +762,11 @@ static void delete_vma_from_mm(struct vm_area_struct *vma)
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
 
+		mutex_lock(&mapping->i_mmap_mutex);
 		flush_dcache_mmap_lock(mapping);
 		vma_prio_tree_remove(vma, &mapping->i_mmap);
 		flush_dcache_mmap_unlock(mapping);
+		mutex_unlock(&mapping->i_mmap_mutex);
 	}
 
 	/* remove from the MM's tree and list */
@@ -775,8 +779,6 @@ static void delete_vma_from_mm(struct vm_area_struct *vma)
 
 	if (vma->vm_next)
 		vma->vm_next->vm_prev = vma->vm_prev;
-
-	vma->vm_mm = NULL;
 }
 
 /*
@@ -1231,7 +1233,7 @@ enomem:
 /*
  * handle mapping creation for uClinux
  */
-unsigned long do_mmap_pgoff(struct file *file,
+static unsigned long do_mmap_pgoff(struct file *file,
 			    unsigned long addr,
 			    unsigned long len,
 			    unsigned long prot,
@@ -1468,7 +1470,32 @@ error_getting_region:
 	show_free_areas(0);
 	return -ENOMEM;
 }
-EXPORT_SYMBOL(do_mmap_pgoff);
+
+unsigned long do_mmap(struct file *file, unsigned long addr,
+	unsigned long len, unsigned long prot,
+	unsigned long flag, unsigned long offset)
+{
+	if (unlikely(offset + PAGE_ALIGN(len) < offset))
+		return -EINVAL;
+	if (unlikely(offset & ~PAGE_MASK))
+		return -EINVAL;
+	return do_mmap_pgoff(file, addr, len, prot, flag, offset >> PAGE_SHIFT);
+}
+EXPORT_SYMBOL(do_mmap);
+
+unsigned long vm_mmap(struct file *file, unsigned long addr,
+	unsigned long len, unsigned long prot,
+	unsigned long flag, unsigned long offset)
+{
+	unsigned long ret;
+	struct mm_struct *mm = current->mm;
+
+	down_write(&mm->mmap_sem);
+	ret = do_mmap(file, addr, len, prot, flag, offset);
+	up_write(&mm->mmap_sem);
+	return ret;
+}
+EXPORT_SYMBOL(vm_mmap);
 
 SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
 		unsigned long, prot, unsigned long, flags,
@@ -1707,15 +1734,21 @@ erase_whole_vma:
 }
 EXPORT_SYMBOL(do_munmap);
 
-SYSCALL_DEFINE2(munmap, unsigned long, addr, size_t, len)
+int vm_munmap(unsigned long addr, size_t len)
 {
-	int ret;
 	struct mm_struct *mm = current->mm;
+	int ret;
 
 	down_write(&mm->mmap_sem);
 	ret = do_munmap(mm, addr, len);
 	up_write(&mm->mmap_sem);
 	return ret;
+}
+EXPORT_SYMBOL(vm_munmap);
+
+SYSCALL_DEFINE2(munmap, unsigned long, addr, size_t, len)
+{
+	return vm_munmap(addr, len);
 }
 
 /*
@@ -1742,7 +1775,7 @@ void exit_mmap(struct mm_struct *mm)
 	kleave("");
 }
 
-unsigned long do_brk(unsigned long addr, unsigned long len)
+unsigned long vm_brk(unsigned long addr, unsigned long len)
 {
 	return -ENOMEM;
 }
@@ -2052,6 +2085,7 @@ int nommu_shrink_inode_mappings(struct inode *inode, size_t size,
 	high = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 
 	down_write(&nommu_region_sem);
+	mutex_lock(&inode->i_mapping->i_mmap_mutex);
 
 	/* search for VMAs that fall within the dead zone */
 	vma_prio_tree_foreach(vma, &iter, &inode->i_mapping->i_mmap,
@@ -2059,6 +2093,7 @@ int nommu_shrink_inode_mappings(struct inode *inode, size_t size,
 		/* found one - only interested if it's shared out of the page
 		 * cache */
 		if (vma->vm_flags & VM_SHARED) {
+			mutex_unlock(&inode->i_mapping->i_mmap_mutex);
 			up_write(&nommu_region_sem);
 			return -ETXTBSY; /* not quite true, but near enough */
 		}
@@ -2086,6 +2121,7 @@ int nommu_shrink_inode_mappings(struct inode *inode, size_t size,
 		}
 	}
 
+	mutex_unlock(&inode->i_mapping->i_mmap_mutex);
 	up_write(&nommu_region_sem);
 	return 0;
 }

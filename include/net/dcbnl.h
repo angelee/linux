@@ -23,9 +23,10 @@
 #include <linux/dcbnl.h>
 
 struct dcb_app_type {
-	char		  name[IFNAMSIZ];
+	int	ifindex;
 	struct dcb_app	  app;
 	struct list_head  list;
+	u8	dcbx;
 };
 
 int dcb_setapp(struct net_device *, struct dcb_app *);
@@ -71,8 +72,8 @@ struct dcbnl_rtnl_ops {
 	void (*getpfccfg)(struct net_device *, int, u8 *);
 	u8   (*setall)(struct net_device *);
 	u8   (*getcap)(struct net_device *, int, u8 *);
-	u8   (*getnumtcs)(struct net_device *, int, u8 *);
-	u8   (*setnumtcs)(struct net_device *, int, u8);
+	int  (*getnumtcs)(struct net_device *, int, u8 *);
+	int  (*setnumtcs)(struct net_device *, int, u8);
 	u8   (*getpfcstate)(struct net_device *);
 	void (*setpfcstate)(struct net_device *, u8);
 	void (*getbcncfg)(struct net_device *, int, u32 *);
