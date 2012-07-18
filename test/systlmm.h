@@ -12,4 +12,4 @@ void tlmm_init(void);
 
 long sys_reserve(void);
 long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap);
-int sys_palloc(void);
+long sys_palloc(void);
