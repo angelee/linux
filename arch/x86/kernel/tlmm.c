@@ -55,8 +55,8 @@
 #define CILK_COMPAT    	   1
 /* Maximum number of Page Descriptors that we copy onto the stack */
 #define MAXSTACKPDS	   32
-/* Maximum number of Page Descriptors per-process */
-#define TLMM_TABLE_SIZE    1024
+/* Initial tlmm table size */
+#define INIT_TLMM_TABLE_SIZE    1024
 
 /*
  * The Linux page table code is hard to work with.  It often assumes
@@ -92,8 +92,11 @@ struct tlmm_pgmap {
  * corresponding physical page.
  */
 struct tlmm_table {
-	int n;
-	void *page[TLMM_TABLE_SIZE];
+	int n;				/* the actual number of valid entries */
+	int cp_index;		/* the lowest index to copy */
+	void **page_map;	/* an array of page ptrs, indexed by its pd */
+	void **next_page_map; /* same as page_map but twice as large */
+	int size;			/* size of the tlmm table, page_map */
 };
 
 static int tlmm_next_dec(int pos)
@@ -119,13 +122,13 @@ static inline void *tlmm_page_alloc(void)
 static inline int tlmm_get_pd_page(struct mm_struct *mm, unsigned int pd,
 				   void **p)
 {
-	if (!mm->tlmm_table || pd >= TLMM_TABLE_SIZE)
+	if (!mm->tlmm_table || pd >= mm->tlmm_table->n)
 		return -EINVAL;
 
-	if (!mm->tlmm_table->page[pd])
+	if (!mm->tlmm_table->page_map[pd])
 		return -EINVAL;
 
-	*p = mm->tlmm_table->page[pd];
+	*p = mm->tlmm_table->page_map[pd];
 	return 0;
 }
 
@@ -289,26 +292,77 @@ long tlmm_reserve(void)
 	return error;
 }
 
+static inline int expand_tlmm_table(struct tlmm_table *table)
+{
+	void **new_array;
+    /* size of the new array for next_page_map */
+	int new_size = table->size << 2;
+
+	if (new_size <= 0)  /* overflow */
+		return -ENOMEM;
+
+	new_array = kmalloc(sizeof(void *)*new_size, GFP_KERNEL);
+	if (!new_array)
+		return -ENOMEM;
+
+	table->cp_index = table->size - 1;
+	table->size = (table->size << 1);
+	kfree(table->page_map);
+	table->page_map = table->next_page_map;
+	table->next_page_map = new_array;
+
+	return 0;
+}
+
 static inline int tlmm_alloc_pd(struct mm_struct *mm)
 {
 	void *page;
 	int n;
 
+    /* first time init tlmm_table */
 	if (mm->tlmm_table == NULL) {
 		mm->tlmm_table = kmalloc(sizeof(*mm->tlmm_table), __GFP_ZERO);
 		if (mm->tlmm_table == NULL)
 			return -ENOMEM;
+		mm->tlmm_table->page_map =
+			kmalloc(sizeof(void *)*INIT_TLMM_TABLE_SIZE,
+				__GFP_ZERO);
+		if (mm->tlmm_table->page_map == NULL) {
+			kfree(mm->tlmm_table);
+			return -ENOMEM;
+		}
+		mm->tlmm_table->size = INIT_TLMM_TABLE_SIZE;
+
+		mm->tlmm_table->next_page_map =
+			kmalloc(sizeof(void *)*(INIT_TLMM_TABLE_SIZE << 1),
+				__GFP_ZERO);
+		if (mm->tlmm_table->next_page_map == NULL) {
+			kfree(mm->tlmm_table->page_map);
+			kfree(mm->tlmm_table);
+			return -ENOMEM;
+		}
+		/* no need to copy additional pds until first expand */
+		mm->tlmm_table->cp_index = -1;
 	}
 
 	n = mm->tlmm_table->n;
-	if (n >= TLMM_TABLE_SIZE)
-		return -ENOMEM;
+	if (n >= mm->tlmm_table->size) {
+		if (expand_tlmm_table(mm->tlmm_table))
+			return -ENOMEM;
+	}
 
 	page = tlmm_page_alloc();
 	if (page == NULL)
 		return -ENOMEM;
 
-	mm->tlmm_table->page[n] = page;
+	mm->tlmm_table->page_map[n] = page;
+	mm->tlmm_table->next_page_map[n] = page;
+    /* always true after first expand */
+	if (mm->tlmm_table->cp_index >= 0) {
+		mm->tlmm_table->next_page_map[mm->tlmm_table->cp_index] =
+			mm->tlmm_table->page_map[mm->tlmm_table->cp_index];
+		mm->tlmm_table->cp_index--;
+	}
 	mm->tlmm_table->n = n + 1;
 
 	return n;
@@ -318,9 +372,10 @@ static void tlmm_free_pd(struct mm_struct *mm, unsigned int pd)
 {
 	void *p;
 
-	p = mm->tlmm_table->page[pd];
+	p = mm->tlmm_table->page_map[pd];
 	tlmm_page_free(p);
-	mm->tlmm_table->page[pd] = NULL;
+	mm->tlmm_table->page_map[pd] = NULL;
+	mm->tlmm_table->next_page_map[pd] = NULL;
 }
 
 long tlmm_palloc(void)
@@ -472,8 +527,8 @@ void exit_tlmm_mmap(struct mm_struct *mm)
 	if (!mm->tlmm_table)
 		return;
 
-	for (i = 0; i < TLMM_TABLE_SIZE; i++)
-		if (mm->tlmm_table->page[i])
+	for (i = 0; i < mm->tlmm_table->n; i++)
+		if (mm->tlmm_table->page_map[i])
 			tlmm_free_pd(mm, i);
 
 	kfree(mm->tlmm_table);
