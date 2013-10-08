@@ -18,11 +18,11 @@ all: $(BINS)
 
 %: %.c $(HDRS) $(LIBS)
 	@echo "CC       $@"
-	$(Q)$(CC) -o $@ $< $(LIBS) $(CFLAGS) $(LDFLAGS)
+	$(Q)$(CC) -std=c99 -o $@ $< $(LIBS) $(CFLAGS) $(LDFLAGS)
 
 %.o: %.c $(HDRS)
 	@echo "CC       $@"
-	$(Q)$(CC) -c -o $@ $< $(CFLAGS)
+	$(Q)$(CC) -c -std=c99 -o $@ $< $(CFLAGS)
 
 .PRECIOUS: $(LIBS)
 .PHONY: clean ignore

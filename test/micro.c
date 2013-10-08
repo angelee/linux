@@ -17,8 +17,7 @@ static unsigned long tlmm_top;
 static unsigned long tlmm_bot;
 
 static void __attribute__((noreturn))
-die(const char *errstr, ...)
-{
+die(const char *errstr, ...) {
 	va_list ap;
 
 	va_start(ap, errstr);
@@ -29,19 +28,16 @@ die(const char *errstr, ...)
 }
 
 static inline uint64_t
-read_tsc(void)
-{
+read_tsc(void) {
 	uint32_t a, d;
 	__asm __volatile("rdtsc" : "=a" (a), "=d" (d));
 	return ((uint64_t) a) | (((uint64_t) d) << 32);
 }
 
 static void
-bench0(void)
-{
+bench0(void) {
 	enum { iters = 10000 };
 
-	int i;
 	int pd;
 	unsigned long addr;
 	uint64_t s, e, tmap, tumap;
@@ -52,23 +48,24 @@ bench0(void)
 	if (pd < 0)
 		die("bench0: sys_palloc error: %s\n", strerror(errno));
 
+	// this indicates to sys_pmap to unmap the page
 	pdnull = TLMM_PD_NULL;
-
 	addr = tlmm_top - 4096;
 
 	tmap = tumap = 0;
-	for (i = 0; i < iters; i++) {
+	for (int i = 0; i < iters; i++) {
 		s = read_tsc();
 		if (sys_pmap((void *)addr, &pd, 1, PROT_READ|PROT_WRITE, 1) < 0)
 			die("bench0: sys_pmap error: %s\n", strerror(errno));
 
-		if (INCLUDE_TLB)
+		if (INCLUDE_TLB) { // account for TLB overhead
 			*((unsigned long *)addr) = 1;
-
+    		}
 		e = read_tsc();
 		tmap += (e - s);
 
 		s = read_tsc();
+		// unmap using pdnull
 		if (sys_pmap((void *)addr, &pdnull, 1, 0, 1) < 0)
 			die("bench0: sys_pmap (null) error: %s",
 			    strerror(errno));
@@ -77,13 +74,12 @@ bench0(void)
 	}
 
 	f = (float)tmap/(float)iters;
-	printf("sys map %f cycles\n", f);
+	printf("sys map %7.2f cycles\n", f);
 	f = (float)tumap/(float)iters;
-	printf("sys umap %f cycles\n", f);
+	printf("sys umap %7.2f cycles\n", f);
 }
 
-static void bench1_helper(int *pd, int *null, unsigned int n)
-{
+static void bench1_helper(int *pd, int *null, unsigned int n) {
 	enum { iters = 10000 };
 
 	uint64_t s, e, tmap, tumap;
@@ -118,9 +114,8 @@ static void bench1_helper(int *pd, int *null, unsigned int n)
 	printf("   umap %7.2f\n", f);
 }
 
-static void bench1(void)
-{
-	enum { max_pages = 100 };
+static void bench1(void) {
+	enum { max_pages = 512 };
 
 	int pd[max_pages], null[max_pages];
 	unsigned int i;
@@ -139,8 +134,7 @@ static void bench1(void)
 }
 
 int
-main(int ac, char **av)
-{
+main(int ac, char **av) {
 	tlmm_bot = sys_reserve();
 	tlmm_top = tlmm_bot + TLMM_SIZE;
 
@@ -148,3 +142,4 @@ main(int ac, char **av)
 	bench1();
 	return 0;
 }
+

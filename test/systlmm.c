@@ -11,8 +11,7 @@ static pthread_mutex_t inited_mu = PTHREAD_MUTEX_INITIALIZER;
 static char inited;
 static int devfd;
 
-static void init(void)
-{
+static void init(void) {
 	int fd;
 
 	pthread_mutex_lock(&inited_mu);
@@ -29,8 +28,7 @@ done:
 	pthread_mutex_unlock(&inited_mu);
 }
 
-long sys_reserve(void)
-{
+long sys_reserve(void) {
 	unsigned long addr;
 	int r;
 
@@ -43,8 +41,7 @@ long sys_reserve(void)
 	return addr;
 }
 
-long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap)
-{
+long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap) {
 	struct tlmm_pmap p;
 
 	if (!inited)
@@ -58,8 +55,7 @@ long sys_pmap(void *addr, int *pds, unsigned int npds, int prot, int decmap)
 	return ioctl(devfd, TLMM_PMAP, &p);
 }
 
-long sys_palloc(void)
-{
+long sys_palloc(void) {
 	if (!inited)
 		init();
 
